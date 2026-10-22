@@ -19,6 +19,7 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
 - Specks (setting `speckMm`, default 0.2 mm): separate artwork pieces smaller than this, and tiny subpaths / lone move-tos inside artwork paths, are dropped before compensation (they would grow into visible dots). Card reports the count.
 - The "big stroke-only shape ≥60% of the frame" guide rule applies only to closed outlines (guide circles); open lines stay artwork unless another guide rule matches.
 - Single-colour film: every artwork colour → black; white shapes inside frames knock out. Clipped to frames.
+- Spot colours: `cs`/`CS` resolve the page's /ColorSpace resources. In Separation/DeviceN spaces the `sc`/`scn` numbers are ink tints (1 = full ink), keyed `spot:<names> <tints>`. Never read them as gray, because `1` = white would knock the artwork out. ICCBased spaces behave like Device gray/RGB/CMYK by N.
 - Near-white counts as white (setting `nearWhite`, default 5 = total ink C+M+Y+K ≤ 5%, or RGB/gray within 5% of white): customer files carry invisible leftovers such as a C 0.1% box with a star-shaped hole. They knock out like white; the card reports how many.
 - Edge compensation per design: auto = thickness × factor (default 0.5), manual µm, none. Implemented as round-join, butt-cap stroke 2r on fills with every subpath closed (holes shrink), stroke width + 2r on strokes (caps unchanged).
 - Marks: 3 faint crosses on the centre line between frames; 2-line faint label 10 mm below the lowest cross (customer - file / thickness · compensation · date).

@@ -109,6 +109,14 @@
       label = 'C' + Math.round(v[0] * 100) + ' M' + Math.round(v[1] * 100) + ' Y' + Math.round(v[2] * 100) + ' K' + Math.round(v[3] * 100); }
     else if (kind === 'rgb') { [r, g, b] = v.map(x => 255 * x); ink = 100 * (1 - Math.min(...v)); pure = v.every(x => x === 1); label = 'RGB ' + v.map(x => Math.round(x * 255)).join(' '); }
     else if (kind === 'gray') { r = g = b = 255 * v[0]; ink = 100 * (1 - v[0]); pure = v[0] === 1; label = 'Gray ' + Math.round((1 - v[0]) * 100) + '%'; }
+    else if (kind === 'spot') {   // spot colour (Separation / DeviceN): the numbers are ink tints, 1 = full ink
+      const sp = rest.split(' '), names = decodeURIComponent(sp[0]).split('|'), t = sp.slice(1).map(Number);
+      ink = 100 * t.reduce((s, x) => s + (Number.isFinite(x) ? x : 0), 0); pure = t.every(x => x === 0);
+      if (names.length === 1 && names[0] === 'All') ink = Math.max(ink, 100);   // registration colour
+      const base = names.length === 1 && spotCss[names[0]];
+      [r, g, b] = base ? base.map(c => 255 - (255 - c) * Math.min(1, t[0])) : [160, 160, 160];
+      label = names.join(' + ') + ' ' + t.map(x => Math.round(x * 100) + '%').join(' / ');
+    }
     else { r = g = b = 160; label = kind === 'pattern' ? 'Pattern / gradient' : key; }
     const white = pure || (ink != null && Number.isFinite(ink) && ink <= nearWhitePct + 1e-9);
     const css = 'rgb(' + [r, g, b].map(x => Math.round(Math.max(0, Math.min(255, x)))).join(',') + ')';
@@ -134,6 +142,54 @@
       parts.push(toLatin1(bytes));
     }
     return parts.join('\n');
+  }
+  /* Colour spaces named in the page resources. Spot colours (Separation / DeviceN) set ink TINTS with sc/scn,
+     so "1 scn" there is full ink, not gray 1 (= white). ICCBased spaces behave like Device gray/RGB/CMYK. */
+  const spotCss = {};
+  function colourSpaces(doc, page) {
+    const out = {};
+    const res = page.node.Resources(); if (!res) return out;
+    const cs = res.has(PDFName.of('ColorSpace')) ? res.lookup(PDFName.of('ColorSpace')) : null; if (!(cs instanceof PDFDict)) return out;
+    const L = (o) => doc.context.lookup(o);
+    const nm = (o) => { o = L(o); return o instanceof PDFName ? decodeURIComponent(o.asString().slice(1).replace(/#([0-9a-f]{2})/gi, '%$1')) : null; };
+    const num = (o) => { o = L(o); return o && typeof o.asNumber === 'function' ? o.asNumber() : NaN; };
+    for (const [k, v] of cs.entries()) {
+      const key = k.asString().slice(1), o = L(v);
+      if (!(o instanceof PDFArray) || !o.size()) continue;
+      const fam = nm(o.get(0));
+      if (fam === 'Separation' || fam === 'DeviceN') {
+        const names = fam === 'Separation' ? [nm(o.get(1))] : (L(o.get(1)) instanceof PDFArray ? L(o.get(1)).asArray().map(nm) : []);
+        out[key] = { spot: names.map(n => n || '?') };
+        try {   // approximate screen colour for the chip: alternate space + exponential (type 2) tint function at full tint
+          const alt = L(o.get(2)), fn = L(o.get(3)), fd = fn instanceof PDFDict ? fn : fn && fn.dict;
+          const an = alt instanceof PDFArray ? nm(alt.get(0)) : nm(alt);
+          const c1 = fd && fd.lookup && fd.lookup(PDFName.of('C1')); const ft = fd && fd.lookup && num(fd.lookup(PDFName.of('FunctionType')));
+          if (fam === 'Separation' && ft === 2 && c1 instanceof PDFArray) {
+            const v1 = c1.asArray().map(num);
+            if (an === 'DeviceCMYK' && v1.length === 4) spotCss[names[0]] = [0, 1, 2].map(j => 255 * (1 - v1[j]) * (1 - v1[3]));
+            else if (an === 'DeviceRGB' && v1.length === 3) spotCss[names[0]] = v1.map(x => 255 * x);
+            else if (an === 'DeviceGray' && v1.length === 1) spotCss[names[0]] = [255 * v1[0], 255 * v1[0], 255 * v1[0]];
+          }
+        } catch (e) {}
+      } else if (fam === 'ICCBased') {
+        const s = L(o.get(1)); const n = s && s.dict ? num(s.dict.get(PDFName.of('N'))) : NaN;
+        out[key] = { dev: n === 1 ? 'gray' : n === 3 ? 'rgb' : n === 4 ? 'cmyk' : null };
+      } else if (fam === 'Pattern') out[key] = { pattern: true };
+    }
+    return out;
+  }
+  // colour key for sc/scn in the current colour space
+  function spaceKey(space, op, args) {
+    if (space && space.spot && !args.some(a => a.type === 'name')) {
+      const t = nums(args).map(x => +x.toFixed(4));
+      return 'spot:' + encodeURIComponent(space.spot.join('|')) + ' ' + t.join(' ');
+    }
+    return colourKey(op, args);
+  }
+  function spaceInit(space, name) {   // the colour a "cs" operator starts with
+    if (space && space.spot) return 'spot:' + encodeURIComponent(space.spot.join('|')) + ' ' + space.spot.map(() => 1).join(' ');
+    if (name === 'DeviceCMYK' || (space && space.dev === 'cmyk')) return 'cmyk:0 0 0 1';
+    return 'gray:0';
   }
   function xobjectKinds(doc, page) {
     const out = {};
@@ -189,6 +245,7 @@
     const page = doc.getPage(pi);
     const ops = tokenize(await readContents(doc, page));
     const xk = xobjectKinds(doc, page);
+    const spaces = colourSpaces(doc, page);
     const { width, height } = page.getSize();
     const warn = new Set(); const els = [];
     let gs = { ctm: [1, 0, 0, 1, 0, 0], fill: 'gray:0', stroke: 'gray:0', lw: 1, dash: false }; const stack = [];
@@ -204,10 +261,12 @@
         case 'cm': gs.ctm = mul(a, gs.ctm); break;
         case 'w': gs.lw = a[0]; break;
         case 'd': gs.dash = !!(o.args[0] && o.args[0].items && o.args[0].items.length); break;
-        case 'k': case 'rg': case 'g': case 'sc': case 'scn': gs.fill = colourKey(o.op, o.args); break;
-        case 'K': case 'RG': case 'G': case 'SC': case 'SCN': gs.stroke = colourKey(o.op, o.args); break;
-        case 'cs': gs.fill = 'gray:0'; break;
-        case 'CS': gs.stroke = 'gray:0'; break;
+        case 'k': case 'rg': case 'g': gs.fill = colourKey(o.op, o.args); gs.fcs = null; break;
+        case 'K': case 'RG': case 'G': gs.stroke = colourKey(o.op, o.args); gs.scs = null; break;
+        case 'sc': case 'scn': gs.fill = spaceKey(gs.fcs, o.op, o.args); break;
+        case 'SC': case 'SCN': gs.stroke = spaceKey(gs.scs, o.op, o.args); break;
+        case 'cs': case 'CS': { const n = o.args[0] && o.args[0].name, sp = n ? spaces[n] : null;
+          if (o.op === 'cs') { gs.fcs = sp; gs.fill = spaceInit(sp, n); } else { gs.scs = sp; gs.stroke = spaceInit(sp, n); } break; }
         case 'm': { cur = start = [a[0], a[1]]; const p = P(a[0], a[1]); path.push(p); sub = [p]; subs.push(sub); break; }
         case 'l': { const p = P(a[0], a[1]); addSeg(sub[sub.length - 1] || p, p); path.push(p); sub.push(p); cur = [a[0], a[1]]; break; }
         case 'c': case 'v': case 'y': {
