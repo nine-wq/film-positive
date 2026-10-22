@@ -4,8 +4,11 @@ Internal tool for Viczo International (screen-printing ink maker, Thailand). Own
 Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page) into film positives and gangs them on a 21×31 in sheet.
 
 ## Stack
-- Cloudflare Worker `src/index.js`: only `/api/settings` (GET → `{film, customers}`, PUT `{film, baseUpdated}` → 409 on stale base). Static assets in `public/`.
-- D1 binding `DB` = **stencil-db, shared with the stencil-log app**. Read `settings.key='master'` (customers, `customerSpecs[name].target` µm) — never write it. Write only `settings.key='film'`. Never create or alter other tables.
+- Cloudflare Worker `src/index.js`. Static assets in `public/`. API:
+  - `/api/settings` GET → `{film, customers, features}`, PUT `{film, baseUpdated}` → 409 on stale base.
+  - `/api/films` POST multipart (`name`, `info` JSON, `file` PDF) → archive; GET `?limit&before` → newest first. `/api/films/:id` GET (inline, `?dl=1` attachment), DELETE.
+- D1 binding `DB` = **stencil-db, shared with the stencil-log app**. Read `settings.key='master'` (customers, `customerSpecs[name].target` µm) — never write it. Write only `settings.key='film'` and the app's own table `film_outputs` (id, name, created, size, info JSON). Never alter stencil-log tables.
+- R2 binding `FILES` = **stencil-files, shared with stencil-log**. This app only uses keys under `film/` (`film/<id>.pdf`).
 - No build step. `public/js/film-core.js` = analysis/rendering core (also runs in Node with `require('pdf-lib')` for tests). `public/index.html` = UI.
 - Vendored libs in `public/vendor/` (pdf-lib 1.17.1, JSZip 3.10.1, PDF.js 3.11.174 with a real worker).
 
@@ -17,6 +20,7 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
 - Marks: 3 faint crosses on the centre line between frames; 2-line faint label 10 mm below the lowest cross (customer - file / thickness · compensation · date).
 
 ## Rules
+- Saving a PDF downloads it and, by default ("เก็บสำเนาในประวัติ"), archives it; the ประวัติ tab lists, opens, downloads and deletes archived films.
 - UI text in Thai; must work at 400 px width and in dark mode.
 - Before pushing: `node --check public/js/film-core.js` and `node --check --input-type=module < src/index.js`.
 - Deploy = push to `main` (Workers Builds runs `npx wrangler deploy`). No secrets in the repo.

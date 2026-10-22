@@ -113,6 +113,27 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .ghost { font: 500 .85rem var(--font-body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer }
 .ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .savestate { font-size: .82rem }
+.saveside { display: flex; align-items: center; gap: 12px; flex-wrap: wrap }
+.keep { display: inline-flex; align-items: center; gap: 6px; font-size: .84rem; color: var(--muted); cursor: pointer }
+.hist { display: grid; gap: 12px; max-width: 900px }
+.histbar { display: flex; gap: 8px; flex-wrap: wrap }
+.histbar input { flex: 1 1 240px; min-width: 0; font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px }
+.histlist { display: grid; gap: 8px }
+.hday { font-size: .75rem; font-weight: 600; letter-spacing: .06em; color: var(--muted); margin: 8px 0 0 }
+.hitem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start }
+.hname { font-weight: 600; font-size: .9rem; word-break: break-all }
+.hmeta { font-size: .78rem; color: var(--muted); font-family: var(--font-data); font-variant-numeric: tabular-nums }
+.hcust { font-size: .82rem }
+.hact { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end }
+.hact a, .hact button { font: 500 .8rem var(--font-body); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; text-decoration: none }
+.hact button.del { color: var(--muted) }
+.hact button.del.armed { color: #fff; background: var(--bad); border-color: var(--bad) }
+.hdetail { grid-column: 1 / -1; font-size: .78rem; color: var(--muted) }
+.hdetail summary { cursor: pointer; width: max-content }
+.hdetail table { width: 100%; border-collapse: collapse; margin-top: 4px }
+.hdetail td { padding: 3px 6px; border-top: 1px solid var(--line); vertical-align: top }
+.hdetail td.num { font-family: var(--font-data); white-space: nowrap }
+@media (max-width: 520px) { .hitem { grid-template-columns: minmax(0, 1fr) } .hact { justify-content: flex-start } }
 .sync { margin: 0; font-size: .84rem; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel) }
 .sync.on { border-color: var(--accent); color: var(--fg) }
 .sync.off { color: var(--warn) }
@@ -169,9 +190,20 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     <h1>ฟิล์มบล็อคสกรีน <small>เตรียมฟิล์ม positive จากไฟล์ลูกค้า</small></h1>
     <nav class="tabs" role="tablist" aria-label="หน้า">
       <button type="button" role="tab" id="tabWork" aria-controls="viewWork" aria-selected="true">งานฟิล์ม</button>
+      <button type="button" role="tab" id="tabHist" aria-controls="viewHist" aria-selected="false">ประวัติ</button>
       <button type="button" role="tab" id="tabSetup" aria-controls="viewSetup" aria-selected="false">ตั้งค่า</button>
     </nav>
   </header>
+
+  <div class="hist" id="viewHist" role="tabpanel" aria-labelledby="tabHist" hidden>
+    <div class="histbar">
+      <input type="search" id="histQ" placeholder="ค้นหาชื่อไฟล์ หรือลูกค้า" aria-label="ค้นหาประวัติ">
+      <button type="button" class="ghost" id="histReload">โหลดใหม่</button>
+    </div>
+    <div class="status" id="histStatus" role="status"></div>
+    <div class="histlist" id="histList"></div>
+    <button type="button" class="ghost" id="histMore" hidden>โหลดรายการเก่ากว่านี้</button>
+  </div>
 
   <div class="setup" id="viewSetup" role="tabpanel" aria-labelledby="tabSetup" hidden>
       <p class="sync" id="syncNote"></p>
@@ -229,7 +261,10 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     <section class="stage" aria-label="แผ่นฟิล์ม">
       <div class="bar">
         <div class="stats" id="stats"></div>
-        <button class="btn" id="save" disabled>บันทึก PDF ฟิล์ม</button>
+        <div class="saveside">
+          <label class="keep" id="keepWrap" hidden><input type="checkbox" id="keepCopy" checked> เก็บสำเนาในประวัติ</label>
+          <button class="btn" id="save" disabled>บันทึก PDF ฟิล์ม</button>
+        </div>
       </div>
       <div class="status" id="status" role="status"></div>
       <div class="sheets" id="sheets"><div class="empty">กำลังโหลดเครื่องมือ…</div></div>
@@ -257,7 +292,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       if (s3) { st = { ...DEFAULTS, ...s3, cropMarks: false }; if (s3.markWidth) st.markWidthMm = Math.round(s3.markWidth * 25.4 / 72 * 100) / 100; delete st.markWidth; }
     }
   } catch (e) {}
-  const jobs = []; let lastPdf = null; let seq = 0; let buildTimer = 0; let buildId = 0;
+  const jobs = []; let lastPdf = null, lastPlan = null, lastBlocks = []; let seq = 0; let buildTimer = 0; let buildId = 0;
   if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
 
   /* ---------- settings form ---------- */
@@ -330,10 +365,10 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const r = await fetch('api/settings', { cache: 'no-store', signal: ctl.signal }); clearTimeout(tm);
       if (!r.ok) throw new Error('http ' + r.status);
       const d = await r.json();
-      remote.ok = true; remote.customers = Array.isArray(d.customers) ? d.customers : [];
+      remote.ok = true; remote.customers = Array.isArray(d.customers) ? d.customers : []; remote.history = !!(d.features && d.features.history);
       applyFilm(d.film);
     } catch (e) { remote.ok = false; }
-    syncNote();
+    syncNote(); syncKeep();
     return remote.ok;
   }
   function filmPayload() { return { ...stPlain(), thicknesses: cfg.thicknesses, defaultThick: cfg.defaultThick, factor: cfg.factor }; }
@@ -411,17 +446,20 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   function saveSettings() { try { localStorage.setItem('film-settings-v4', JSON.stringify(stPlain())); } catch (e) {} }
 
   /* ---------- tabs ---------- */
+  const TABS = [['work', 'tabWork', 'viewWork'], ['hist', 'tabHist', 'viewHist'], ['setup', 'tabSetup', 'viewSetup']];
   function showTab(which) {
-    const work = which !== 'setup';
-    $('viewWork').hidden = !work; $('viewSetup').hidden = work;
-    $('tabWork').setAttribute('aria-selected', String(work)); $('tabSetup').setAttribute('aria-selected', String(!work));
-    try { sessionStorage.setItem('film-tab', work ? 'work' : 'setup'); } catch (e) {}
-    if (work) schedule(0);
+    TABS.forEach(([k, t, v]) => { $(v).hidden = k !== which; $(t).setAttribute('aria-selected', String(k === which)); });
+    if (which === 'work') schedule(0);
+    if (which === 'hist') loadHistory(true);
+    if (which === 'setup' && !/dirty/.test($('saveState').className)) loadRemote();
   }
-  $('tabWork').addEventListener('click', () => showTab('work'));
-  $('tabSetup').addEventListener('click', () => { showTab('setup'); if (!/dirty/.test($('saveState').className)) loadRemote(); });
-  [$('tabWork'), $('tabSetup')].forEach(t => t.addEventListener('keydown', e => {
-    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const next = t.id === 'tabWork' ? 'setup' : 'work'; showTab(next); $(next === 'work' ? 'tabWork' : 'tabSetup').focus(); } }));
+  TABS.forEach(([k, t], i) => {
+    $(t).addEventListener('click', () => showTab(k));
+    $(t).addEventListener('keydown', e => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      e.preventDefault(); const n = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]; showTab(n[0]); $(n[1]).focus();
+    });
+  });
 
   /* ---------- file intake ---------- */
   const drop = $('drop');
@@ -609,7 +647,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     let res;
     try { res = await C.render(blocks, st); } catch (e) { setStatus('สร้างฟิล์มไม่สำเร็จ: ' + e.message, true); return; }
     if (id !== buildId) return;
-    lastPdf = res.bytes; $('save').disabled = !res.plan.sheets.length;
+    lastPdf = res.bytes; lastPlan = res.plan; lastBlocks = blocks; $('save').disabled = !res.plan.sheets.length;
     const MM = C.MM, plan = res.plan;
     const used = plan.sheets.map(s => (plan.H - st.margin * MM - Math.min(...s.map(it => it.y))) / MM);
     const addStat = (k, v) => { const s = document.createElement('span'); s.append(k + ' '); const b = document.createElement('b'); b.textContent = v; s.appendChild(b); stats.appendChild(s); };
@@ -646,6 +684,97 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   }
   let rw = 0; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => schedule(0), 250); });
 
+  /* ---------- history (server: R2 + film_outputs) ---------- */
+  function historyOn() { return remote.ok && remote.history; }
+  function syncKeep() { $('keepWrap').hidden = !historyOn(); }
+  async function archive(filename, bytes, plan, blocks) {
+    if (!historyOn() || !$('keepCopy').checked || !bytes) return;
+    const placed = new Set(); (plan ? plan.sheets.flat() : []).forEach(it => placed.add(it.b));
+    const items = blocks.filter(b => placed.has(b)).map(b => {
+      const ds = (b.job.dset && b.job.dset[b.design.index]) || {};
+      return { file: b.job.name, customer: ds.customer || '', thick: ds.thick != null ? ds.thick : null, compUm: b.offsetUm, mode: ds.mode || 'auto' };
+    });
+    const info = { sheets: plan ? plan.sheets.length : 0, blocks: items.length, sheetW: st.sheetW, sheetH: st.sheetH, date: st.dateText, items };
+    const fd = new FormData();
+    fd.append('name', filename); fd.append('info', JSON.stringify(info));
+    fd.append('file', new Blob([bytes], { type: 'application/pdf' }), filename);
+    try {
+      const r = await fetch('api/films', { method: 'POST', body: fd });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+      hist.items = null;   // refresh next time the tab opens
+      const s = $('status'); if (!s.classList.contains('bad')) setStatus((s.textContent ? s.textContent + ' · ' : '') + 'เก็บสำเนาในประวัติแล้ว');
+    } catch (e) { setStatus('ดาวน์โหลดแล้ว แต่เก็บสำเนาในประวัติไม่สำเร็จ (' + e.message + ')', true); }
+  }
+  const hist = { items: null, more: false, loading: false };
+  const fmtDate = (t) => { const d = new Date(t), p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+  async function loadHistory(fresh) {
+    if (!historyOn()) { await loadRemote(); }
+    if (!historyOn()) { $('histList').textContent = ''; $('histMore').hidden = true;
+      $('histStatus').textContent = remote.ok ? 'ยังไม่ได้เชื่อมที่เก็บไฟล์ (R2) บนเซิร์ฟเวอร์' : 'ประวัติดูได้เฉพาะตอนเปิดแอปจากเว็บของบริษัท (Cloudflare)'; $('histStatus').className = 'status bad'; return; }
+    if (hist.loading) return;
+    if (!fresh && hist.items) return renderHistory();
+    if (fresh && hist.items && hist.items.length && !hist.stale) { renderHistory(); }
+    hist.loading = true; $('histStatus').textContent = 'กำลังโหลด…'; $('histStatus').className = 'status';
+    try {
+      const before = !fresh && hist.items && hist.items.length ? hist.items[hist.items.length - 1].created : '';
+      const r = await fetch('api/films?limit=50' + (before ? '&before=' + before : ''), { cache: 'no-store' });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || r.status);
+      hist.items = fresh ? d.items : (hist.items || []).concat(d.items); hist.more = d.more;
+      $('histStatus').textContent = '';
+    } catch (e) { $('histStatus').textContent = 'โหลดประวัติไม่สำเร็จ (' + e.message + ')'; $('histStatus').className = 'status bad'; }
+    hist.loading = false; renderHistory();
+  }
+  function renderHistory() {
+    const box = $('histList'); box.textContent = '';
+    const q = $('histQ').value.trim().toLowerCase();
+    const list = (hist.items || []).filter(it => !q || [it.name, ...(it.info.items || []).flatMap(x => [x.file, x.customer])].join(' ').toLowerCase().includes(q));
+    if (!list.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = hist.items && hist.items.length ? 'ไม่พบรายการที่ตรงกับคำค้น' : 'ยังไม่มีฟิล์มที่บันทึกไว้ เมื่อกดบันทึก PDF ฟิล์ม สำเนาจะมาอยู่ที่นี่'; box.appendChild(e); }
+    let lastDay = '';
+    for (const it of list) {
+      const day = fmtDate(it.created).slice(0, 10);
+      if (day !== lastDay) { const h = document.createElement('div'); h.className = 'hday'; h.textContent = day; box.appendChild(h); lastDay = day; }
+      const card = document.createElement('div'); card.className = 'hitem';
+      const left = document.createElement('div');
+      const nm = document.createElement('div'); nm.className = 'hname'; nm.textContent = it.name;
+      const info = it.info || {}, items = info.items || [];
+      const meta = document.createElement('div'); meta.className = 'hmeta';
+      meta.textContent = [fmtDate(it.created).slice(11), info.sheets != null ? `${info.sheets} แผ่น` : '', `${items.length || info.blocks || 0} บล็อก`, info.sheetW ? `${info.sheetW}×${info.sheetH}″` : '', fmtSize(it.size)].filter(Boolean).join(' · ');
+      const custs = [...new Set(items.map(x => x.customer || 'ไม่ระบุลูกค้า'))];
+      const cu = document.createElement('div'); cu.className = 'hcust'; cu.textContent = custs.join(', ');
+      left.append(nm, meta, cu);
+      const act = document.createElement('div'); act.className = 'hact';
+      const view = document.createElement('a'); view.href = 'api/films/' + it.id; view.target = '_blank'; view.rel = 'noopener'; view.textContent = 'เปิดดู';
+      const dl = document.createElement('a'); dl.href = 'api/films/' + it.id + '?dl=1'; dl.textContent = 'ดาวน์โหลด';
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'del'; del.textContent = 'ลบ';
+      let armT = 0;
+      del.addEventListener('click', async () => {
+        if (!del.classList.contains('armed')) { del.classList.add('armed'); del.textContent = 'กดอีกครั้งเพื่อลบ'; armT = setTimeout(() => { del.classList.remove('armed'); del.textContent = 'ลบ'; }, 4000); return; }
+        clearTimeout(armT); del.disabled = true; del.textContent = 'กำลังลบ…';
+        try { const r = await fetch('api/films/' + it.id, { method: 'DELETE' }); if (!r.ok) throw new Error(r.status);
+          hist.items = hist.items.filter(x => x.id !== it.id); renderHistory(); }
+        catch (e) { del.disabled = false; del.textContent = 'ลบไม่สำเร็จ'; }
+      });
+      act.append(view, dl, del);
+      card.append(left, act);
+      if (items.length) {
+        const det = document.createElement('details'); det.className = 'hdetail';
+        const sm = document.createElement('summary'); sm.textContent = 'รายการลายในฟิล์มนี้'; det.appendChild(sm);
+        const t = document.createElement('table');
+        items.forEach(x => { const tr = document.createElement('tr');
+          const comp = !x.compUm ? 'ไม่ชดเชย' : `+${x.compUm} µm` + (x.mode === 'manual' ? ' (ระบุเอง)' : '');
+          [x.file, x.customer || 'ไม่ระบุลูกค้า', x.thick != null ? `บล็อก ${x.thick} µm` : '', comp].forEach((v, k) => { const td = document.createElement('td'); if (k >= 2) td.className = 'num'; td.textContent = v; tr.appendChild(td); });
+          t.appendChild(tr); });
+        det.appendChild(t); card.appendChild(det);
+      }
+      box.appendChild(card);
+    }
+    $('histMore').hidden = !hist.more || !!q;
+  }
+  $('histQ').addEventListener('input', renderHistory);
+  $('histReload').addEventListener('click', () => loadHistory(true));
+  $('histMore').addEventListener('click', () => loadHistory(false));
+
   /* ---------- save ---------- */
   $('save').addEventListener('click', async () => {
     if (!lastPdf) return;
@@ -653,6 +782,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     const d = new Date(); const p2 = (n) => String(n).padStart(2, '0'); const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
     const base = real.length === 1 ? real[0].name.replace(/\.(ai|pdf)$/i, '') + '_film' : `film_${st.sheetW}x${st.sheetH}_${real.length || 1}jobs`;
     const filename = `${base}_${stamp}.pdf`;
+    archive(filename, lastPdf, lastPlan, lastBlocks);
     const inViewer = !!(window.claude && window.claude.use);
     const downloads = inViewer ? await window.claude.use('downloads') : null;
     if (!downloads) {

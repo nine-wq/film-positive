@@ -14,5 +14,9 @@
       "database_name": "stencil-db",
       "database_id": "dfc43226-ad35-4696-8046-abe19b41f639"
     }
+  ],
+  // ที่เก็บไฟล์เดียวกับ stencil-log: ฟิล์ม PDF ที่บันทึกเก็บไว้ใต้ key 'film/<id>.pdf'
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "stencil-files" }
   ]
 }
