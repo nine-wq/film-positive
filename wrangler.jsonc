@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "film-positive",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  // ฐานข้อมูลเดียวกับแอปบันทึกขึ้นบล็อค (stencil-log): อ่านรายชื่อลูกค้า และเก็บการตั้งค่าของแอปฟิล์มใน settings.key = 'film'
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "stencil-db",
+      "database_id": "dfc43226-ad35-4696-8046-abe19b41f639"
+    }
+  ]
+}

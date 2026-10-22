@@ -113,6 +113,15 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .ghost { font: 500 .85rem var(--font-body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer }
 .ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .savestate { font-size: .82rem }
+.sync { margin: 0; font-size: .84rem; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel) }
+.sync.on { border-color: var(--accent); color: var(--fg) }
+.sync.off { color: var(--warn) }
+.custtable { width: 100%; border-collapse: collapse; font-size: .85rem }
+.custtable th, .custtable td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line) }
+.custtable th { font-size: .72rem; color: var(--muted); font-weight: 500 }
+.custtable td.num { font-family: var(--font-data); font-variant-numeric: tabular-nums; white-space: nowrap }
+.custwrap { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px }
+.custhint { font-size: .78rem; color: var(--muted); margin: 6px 0 0 }
 .savestate.dirty { color: var(--warn) }
 .savestate.ok { color: var(--accent) }
 .sh { font-size: .95rem; text-transform: none; letter-spacing: 0; color: var(--fg); margin: 0 }
@@ -165,11 +174,13 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   </header>
 
   <div class="setup" id="viewSetup" role="tabpanel" aria-labelledby="tabSetup" hidden>
+      <p class="sync" id="syncNote"></p>
       <section class="settings" id="custBox">
         <h2 class="sh">ลูกค้า ความหนาบล็อก และการชดเชยขอบ</h2>
         <div class="form">
-          <label class="full">รายชื่อลูกค้า บรรทัดละราย: ชื่อ, ความหนาบล็อกปกติ (µm)
+          <label class="full" id="custLocal">รายชื่อลูกค้า บรรทัดละราย: ชื่อ, ความหนาบล็อกปกติ (µm)
             <textarea id="custList" rows="7" spellcheck="false"></textarea></label>
+          <div class="full" id="custRemote" hidden></div>
           <label class="full">ความหนาบล็อกที่มีให้เลือก (µm คั่นด้วยจุลภาค)
             <input type="text" id="thickList" inputmode="numeric"></label>
           <label>ความหนาเมื่อไม่ระบุลูกค้า <span class="unit"><input type="number" id="defaultThick" step="50" min="0" value="0"> µm</span></label>
@@ -200,7 +211,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       <button type="button" class="ghost" id="reset">คืนค่าเริ่มต้น</button>
       <span class="savestate" id="saveState" role="status"></span>
     </div>
-    <p class="note">ไฟล์ทั้งหมดประมวลผลในเบราว์เซอร์นี้ ไม่ได้อัปโหลดไปที่ไหน · การตั้งค่าจำไว้ในเบราว์เซอร์นี้</p>
+    <p class="note">ไฟล์ลูกค้าทั้งหมดประมวลผลในเบราว์เซอร์นี้ ไม่ได้อัปโหลดไปที่ไหน</p>
   </div>
 
   <div class="grid" id="viewWork" role="tabpanel" aria-labelledby="tabWork">
@@ -278,6 +289,55 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   let cfg = JSON.parse(JSON.stringify(CFG_DEFAULT));
   try { const c = JSON.parse(localStorage.getItem('film-cfg-v1') || 'null'); if (c && Array.isArray(c.customers)) cfg = { ...cfg, ...c }; } catch (e) {}
   st.autoFactor = cfg.factor;
+  /* ---------- shared settings on the server (Cloudflare Worker + stencil-db) ---------- */
+  const remote = { ok: false, updated: 0, customers: [] };
+  const BOOLS = ['labels', 'cropMarks'];
+  function syncNote() {
+    const n = $('syncNote');
+    if (remote.ok) { n.className = 'sync on'; n.textContent = 'การตั้งค่าในหน้านี้ใช้ร่วมกันทุกเครื่อง บันทึกแล้วทุกคนเห็นค่าเดียวกัน · รายชื่อลูกค้าและความหนามาจากแอปบันทึกขึ้นบล็อค'; }
+    else { n.className = 'sync off'; n.textContent = 'ต่อเซิร์ฟเวอร์ไม่ได้ การตั้งค่าจะเก็บไว้ในเบราว์เซอร์นี้เท่านั้น'; }
+    $('custLocal').hidden = remote.ok; $('custRemote').hidden = !remote.ok;
+  }
+  function renderCustRemote() {
+    const box = $('custRemote'); box.textContent = '';
+    const lab = document.createElement('div'); lab.style.cssText = 'font-size:.8rem;color:var(--muted);margin-bottom:4px'; lab.textContent = `รายชื่อลูกค้า (${remote.customers.length} ราย) จากแอปบันทึกขึ้นบล็อค`;
+    box.appendChild(lab);
+    if (!remote.customers.length) { const p = document.createElement('p'); p.className = 'custhint'; p.textContent = 'ยังไม่มีลูกค้าในแอปบันทึกขึ้นบล็อค'; box.appendChild(p); return; }
+    const wrap = document.createElement('div'); wrap.className = 'custwrap';
+    const t = document.createElement('table'); t.className = 'custtable';
+    t.innerHTML = '<thead><tr><th>ลูกค้า</th><th>ความหนาบล็อก</th></tr></thead>';
+    const tb = document.createElement('tbody');
+    remote.customers.forEach(c => { const tr = document.createElement('tr'); const a = document.createElement('td'); a.textContent = c.name; const b = document.createElement('td'); b.className = 'num';
+      b.textContent = c.thick != null ? `${c.thick} µm` : `— (ใช้ ${cfg.defaultThick} µm)`; tr.append(a, b); tb.appendChild(tr); });
+    t.appendChild(tb); wrap.appendChild(t); box.appendChild(wrap);
+    const h = document.createElement('p'); h.className = 'custhint'; h.textContent = 'เพิ่มลูกค้าหรือแก้ความหนาได้ที่แอปบันทึกขึ้นบล็อค ⚙ ตั้งค่า (สเปคประจำของลูกค้า) แล้วกลับมาเปิดหน้านี้ใหม่'; box.appendChild(h);
+  }
+  function applyFilm(f) {
+    if (f) {
+      Object.keys(DEFAULTS).forEach(k => { if (BOOLS.includes(k)) { if (typeof f[k] === 'boolean') st[k] = f[k]; } else if (typeof f[k] === 'number') st[k] = f[k]; });
+      if (Array.isArray(f.thicknesses) && f.thicknesses.length) cfg.thicknesses = f.thicknesses;
+      if (typeof f.defaultThick === 'number') cfg.defaultThick = f.defaultThick;
+      if (typeof f.factor === 'number') cfg.factor = f.factor;
+      remote.updated = f.updated || 0;
+    }
+    if (remote.ok) cfg.customers = remote.customers;
+    st.autoFactor = cfg.factor;
+    fillForm(); fillCfg(); if (remote.ok) renderCustRemote();
+  }
+  async function loadRemote() {
+    try {
+      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 5000);
+      const r = await fetch('api/settings', { cache: 'no-store', signal: ctl.signal }); clearTimeout(tm);
+      if (!r.ok) throw new Error('http ' + r.status);
+      const d = await r.json();
+      remote.ok = true; remote.customers = Array.isArray(d.customers) ? d.customers : [];
+      applyFilm(d.film);
+    } catch (e) { remote.ok = false; }
+    syncNote();
+    return remote.ok;
+  }
+  function filmPayload() { return { ...stPlain(), thicknesses: cfg.thicknesses, defaultThick: cfg.defaultThick, factor: cfg.factor }; }
+
   function fillCfg() {
     $('custList').value = cfg.customers.map(c => `${c.name}, ${c.thick}`).join('\n');
     $('thickList').value = cfg.thicknesses.join(', ');
@@ -285,7 +345,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   }
   fillCfg();
   function readCfgForm() {
-    const customers = $('custList').value.split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const customers = remote.ok ? remote.customers : $('custList').value.split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
       const m = l.match(/^(.*?)[,\t;]\s*(\d+)\s*(µm|um)?$/i);
       return m ? { name: m[1].trim(), thick: +m[2] } : { name: l, thick: null };
     }).filter(c => c.name);
@@ -298,23 +358,35 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   function markDirty() { $('saveState').textContent = 'มีการแก้ไขที่ยังไม่ได้บันทึก'; $('saveState').className = 'savestate dirty'; }
   $('viewSetup').addEventListener('input', markDirty);
   $('viewSetup').addEventListener('change', markDirty);
-  $('saveAll').addEventListener('click', () => {
+  $('saveAll').addEventListener('click', async () => {
     const bad = [];
     NUMS.forEach(k => { const v = parseFloat($(k).value); if (isFinite(v) && v >= 0) st[k] = v; else bad.push(k); });
     st.labels = $('labels').checked; st.cropMarks = $('cropMarks').checked;
     cfg = readCfgForm(); st.autoFactor = cfg.factor;
     saveSettings();
     try { localStorage.setItem('film-cfg-v1', JSON.stringify(cfg)); } catch (e) {}
-    fillForm(); fillCfg();
+    let note = '';
+    if (remote.ok) {
+      $('saveAll').disabled = true; $('saveState').textContent = 'กำลังบันทึก…'; $('saveState').className = 'savestate';
+      try {
+        const r = await fetch('api/settings', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ film: filmPayload(), baseUpdated: remote.updated }) });
+        const d = await r.json();
+        if (r.status === 409) { applyFilm(d.film); $('saveAll').disabled = false; $('saveState').textContent = 'มีคนบันทึกการตั้งค่าก่อนหน้าคุณ แสดงค่าล่าสุดแล้ว ตรวจแล้วกดบันทึกอีกครั้ง'; $('saveState').className = 'savestate dirty'; renderJobs(); schedule(0); return; }
+        if (!r.ok) throw new Error(d.error || r.status);
+        remote.updated = d.film.updated; note = ' ทุกเครื่องจะใช้ค่านี้';
+      } catch (e) { note = ' (บันทึกขึ้นเซิร์ฟเวอร์ไม่สำเร็จ เก็บไว้ในเบราว์เซอร์นี้ก่อน)'; }
+      $('saveAll').disabled = false;
+    }
+    fillForm(); fillCfg(); if (remote.ok) renderCustRemote();
     // designs that still follow a customer default pick up the new thickness
     jobs.forEach(r => { if (r.job && r.job.dset) Object.values(r.job.dset).forEach(ds => { if (!ds.thickSet) ds.thick = thickFor(ds.customer); }); });
     renderJobs(); schedule(0);
-    $('saveState').textContent = bad.length ? 'บันทึกแล้ว (บางช่องไม่ใช่ตัวเลข จึงใช้ค่าเดิม)' : 'บันทึกการตั้งค่าแล้ว';
+    $('saveState').textContent = (bad.length ? 'บันทึกแล้ว (บางช่องไม่ใช่ตัวเลข จึงใช้ค่าเดิม)' : 'บันทึกการตั้งค่าแล้ว') + note;
     $('saveState').className = 'savestate ok';
   });
   $('reset').addEventListener('click', () => {
     NUMS.forEach(k => $(k).value = DEFAULTS[k]); $('labels').checked = DEFAULTS.labels; $('cropMarks').checked = DEFAULTS.cropMarks;
-    const keep = cfg; cfg = JSON.parse(JSON.stringify(CFG_DEFAULT)); fillCfg(); cfg = keep;
+    const keep = cfg; cfg = JSON.parse(JSON.stringify(CFG_DEFAULT)); if (remote.ok) cfg.customers = remote.customers; fillCfg(); cfg = keep;
     $('saveState').textContent = 'ใส่ค่าเริ่มต้นแล้ว กดบันทึกการตั้งค่าเพื่อใช้งาน'; $('saveState').className = 'savestate dirty';
   });
   const custOf = (name) => cfg.customers.find(c => c.name === name);
@@ -347,7 +419,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     if (work) schedule(0);
   }
   $('tabWork').addEventListener('click', () => showTab('work'));
-  $('tabSetup').addEventListener('click', () => showTab('setup'));
+  $('tabSetup').addEventListener('click', () => { showTab('setup'); if (!/dirty/.test($('saveState').className)) loadRemote(); });
   [$('tabWork'), $('tabSetup')].forEach(t => t.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const next = t.id === 'tabWork' ? 'setup' : 'work'; showTab(next); $(next === 'work' ? 'tabWork' : 'tabSetup').focus(); } }));
 
@@ -604,6 +676,8 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   /* ---------- start with a demo job ---------- */
   (async function start() {
     if (!window.PDFLib || !C) { $('sheets').innerHTML = '<div class="empty">โหลดเครื่องมือไม่สำเร็จ ลองรีเฟรชหน้า</div>'; return; }
+    syncNote();
+    await loadRemote();
     renderJobs();
     try { await Promise.race([document.fonts.load('10px "IBM Plex Sans Thai"', 'ก'), new Promise(r => setTimeout(r, 2500))]); } catch (e) {}
     build();
