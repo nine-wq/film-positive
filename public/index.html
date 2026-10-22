@@ -127,10 +127,10 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .hitem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden }
 .hhead { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 10px 12px }
 .htitle { display: grid; gap: 1px; min-width: 0; flex: 1 1 260px }
-.hline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap }
-.hfile { font-size: .78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: all }
-.htitle b { font: 600 1rem var(--font-data); font-variant-numeric: tabular-nums }
-.htitle span { font-size: .8rem; color: var(--muted) }
+.hline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap }
+.hfile { font-size: .95rem; font-weight: 600; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: all }
+.htime { font-family: var(--font-data); font-variant-numeric: tabular-nums }
+.hline { font-size: .8rem; color: var(--muted) }
 .hact { display: flex; gap: 6px }
 .hact a, .hact button { font: 500 .8rem var(--font-body); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; text-decoration: none }
 .hact button.del { color: var(--muted) }
@@ -828,12 +828,13 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       // header: time + counts, actions on the right
       const head = document.createElement('div'); head.className = 'hhead';
       const ht = document.createElement('div'); ht.className = 'htitle';
-      const tm = document.createElement('b'); tm.textContent = fmtDate(it.created).slice(11);
+      const tm = document.createElement('span'); tm.className = 'htime'; tm.textContent = fmtDate(it.created).slice(11);
       const sub = document.createElement('span');
       sub.textContent = [`${items.length || info.blocks || 0} ลาย`, info.sheets != null ? `${info.sheets} แผ่น` : '', fmtSize(it.size)].filter(Boolean).join(' · ');
-      const line = document.createElement('div'); line.className = 'hline'; line.append(tm, sub);
+      // file name first (bold), time and counts under it
       const fn = document.createElement('div'); fn.className = 'hfile'; fn.textContent = it.name; fn.title = it.name;
-      ht.append(line, fn);
+      const line = document.createElement('div'); line.className = 'hline'; line.append(tm, sub);
+      ht.append(fn, line);
       const act = document.createElement('div'); act.className = 'hact';
       const view = document.createElement('a'); view.href = 'api/films/' + it.id; view.target = '_blank'; view.rel = 'noopener'; view.textContent = 'เปิด';
       const dl = document.createElement('a'); dl.href = 'api/films/' + it.id + '?dl=1'; dl.textContent = 'ดาวน์โหลด';
