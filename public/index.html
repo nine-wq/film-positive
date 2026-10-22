@@ -249,6 +249,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
           <label>ความเข้มมาร์ค <span class="unit"><input type="number" id="markGrey" step="5" min="5" max="100"> % K</span></label>
           <label>ความเข้มชื่องาน <span class="unit"><input type="number" id="labelGrey" step="5" min="5" max="100"> % K</span></label>
           <label>ความหนาเส้นกากบาท <span class="unit"><input type="number" id="markWidthMm" step="0.05" min="0.05" max="2"> mm</span></label>
+          <label class="full">สีที่อ่อนกว่านี้ถือเป็นสีขาว (ไม่พิมพ์) <span class="unit"><input type="number" id="nearWhite" step="1" min="0" max="50"> % หมึกรวม (C+M+Y+K)</span></label>
           <label class="check"><input type="checkbox" id="labels"> ข้อความใต้ลาย</label>
           <label class="check"><input type="checkbox" id="cropMarks"> เส้นตัด (crop mark)</label>
           <p class="note full">ส่วนที่ไม่ใช่ลายแยกจากหน้าที่ของเส้น ไม่ได้ดูจากความหนา: เส้นกรอบแป้น เส้นรูปถุงเท้า เส้นประ เส้นสีเดียวกับเส้นบอกขนาดนอกกรอบ และเส้นวงใหญ่ที่คลุมเกือบทั้งแป้น (เช่นวงกลมร่าง) จะไม่ถูกทำเป็นสีดำ ถ้ายังมีสีที่ไม่ใช่ลายหลุดเข้ามา แตะที่วงสีบนการ์ดเพื่อตัดออก</p>
@@ -300,7 +301,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   'use strict';
   const C = window.FilmCore;
   const $ = (id) => document.getElementById(id);
-  const DEFAULTS = { sheetW: 21, sheetH: 31, margin: 10, gap: 15, markArm: 5, markGrey: 25, markWidthMm: 0.15, labelGrey: 25, labels: true, cropMarks: false };
+  const DEFAULTS = { sheetW: 21, sheetH: 31, margin: 10, gap: 15, markArm: 5, markGrey: 25, markWidthMm: 0.15, labelGrey: 25, nearWhite: 5, labels: true, cropMarks: false };
   let st = { ...DEFAULTS };
   try {
     const s4 = JSON.parse(localStorage.getItem('film-settings-v4') || 'null');
@@ -314,7 +315,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
 
   /* ---------- settings form ---------- */
-  const NUMS = ['sheetW', 'sheetH', 'margin', 'gap', 'markArm', 'markGrey', 'labelGrey', 'markWidthMm'];
+  const NUMS = ['sheetW', 'sheetH', 'margin', 'gap', 'markArm', 'markGrey', 'labelGrey', 'markWidthMm', 'nearWhite'];
   function fillForm() { NUMS.forEach(k => $(k).value = st[k]); $('labels').checked = st.labels; $('cropMarks').checked = st.cropMarks; }
   fillForm();
   function stPlain() { const o = {}; Object.keys(DEFAULTS).forEach(k => o[k] = st[k]); return o; }
@@ -522,6 +523,11 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 
   /* ---------- job cards ---------- */
   const f1 = (v) => v.toFixed(1);
+  function colourGroups(cols) {
+    const m = new Map();
+    for (const c of cols) { const g = m.get(c.label); if (g) { g.keys.push(c.key); g.art = g.art || c.art; } else m.set(c.label, { ...c, keys: [c.key] }); }
+    return [...m.values()];
+  }
   function renderJobs() {
     const box = $('jobs'); box.textContent = '';
     for (const rec of jobs) {
@@ -592,22 +598,23 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       // colours found in the artwork: all become black; tap one to leave it out
       if (d.colours.length) {
         const chips = document.createElement('div'); chips.className = 'chips';
-        for (const c of d.colours) {
+        for (const c of colourGroups(d.colours)) {   // colours that differ by less than 1% show as one chip
           const b = document.createElement('button'); b.type = 'button'; b.className = 'chip';
           const s = document.createElement('i'); s.style.background = c.css; b.appendChild(s);
           b.appendChild(document.createTextNode(c.label));
           b.setAttribute('aria-pressed', String(c.art));
           b.title = c.art ? 'สีนี้เป็นส่วนของลาย จะกลายเป็นสีดำ แตะเพื่อตัดสีนี้ออกจากลาย' : 'สีนี้ถูกตัดออกจากลาย แตะเพื่อนับกลับเป็นลาย';
-          b.addEventListener('click', () => { if (c.art) j.notArt.add(c.key); else j.notArt.delete(c.key); renderJobs(); schedule(0); });
+          b.addEventListener('click', () => { c.keys.forEach(k => { if (c.art) j.notArt.add(k); else j.notArt.delete(k); }); renderJobs(); schedule(0); });
           chips.appendChild(b);
         }
         body.appendChild(chips);
       }
 
       const notes = [];
-      const nCol = d.colours.filter(c => c.art).length;
+      const nCol = colourGroups(d.colours).filter(c => c.art).length;
       if (nCol > 1) notes.push(`ลายใช้ ${nCol} สีในไฟล์ ทุกสีกลายเป็นสีดำในฟิล์มเดียว`);
       if (d.ignored) notes.push(`ไม่นำมาทำฟิล์ม ${d.ignored} ชิ้นที่อยู่นอกกรอบ (คำอธิบาย ขนาด ตัวอย่างสี)`);
+      if (d.nearWhite) notes.push(`พบวัตถุสีเกือบขาว ${d.nearWhite} ชิ้นในกรอบ ถือเป็นสีขาว (ไม่พิมพ์)`);
       if (d.guides) notes.push(`ตัดเส้นกรอบ เส้นร่าง และเส้นประในแป้นออก ${d.guides} เส้น`);
       if (notes.length) { const m = document.createElement('div'); m.className = 'meta'; m.textContent = notes.join(' · '); body.appendChild(m); }
       const warns = j.warnings.slice();

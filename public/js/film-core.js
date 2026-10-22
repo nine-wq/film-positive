@@ -97,16 +97,22 @@
       || (v.length === 4 ? 'cmyk' : v.length === 3 ? 'rgb' : v.length === 1 ? 'gray' : 'other');
     return kind + ':' + v.join(' ');
   }
+  /* Colours this light count as paper (white): they knock out like white instead of printing.
+     Customers' files often carry near-white leftovers (e.g. C 0.1%) that are invisible on screen.
+     Limit = total ink in percent (C+M+Y+K, or how far RGB/gray is from white); set from the settings. */
+  let nearWhitePct = 5;
+  function setNearWhite(p) { const v = Number(p); nearWhitePct = Number.isFinite(v) && v >= 0 ? Math.min(v, 50) : 5; }
   function keyInfo(key) {
     const [kind, rest] = key.split(':'); const v = (rest || '').split(' ').map(Number);
-    let r = 0, g = 0, b = 0, white = false, label = key;
-    if (kind === 'cmyk') { [r, g, b] = [0, 1, 2].map(j => 255 * (1 - v[j]) * (1 - v[3])); white = v.every(x => x === 0);
+    let r = 0, g = 0, b = 0, ink = null, label = key, pure = false;
+    if (kind === 'cmyk') { [r, g, b] = [0, 1, 2].map(j => 255 * (1 - v[j]) * (1 - v[3])); ink = 100 * (v[0] + v[1] + v[2] + v[3]); pure = v.every(x => x === 0);
       label = 'C' + Math.round(v[0] * 100) + ' M' + Math.round(v[1] * 100) + ' Y' + Math.round(v[2] * 100) + ' K' + Math.round(v[3] * 100); }
-    else if (kind === 'rgb') { [r, g, b] = v.map(x => 255 * x); white = v.every(x => x === 1); label = 'RGB ' + v.map(x => Math.round(x * 255)).join(' '); }
-    else if (kind === 'gray') { r = g = b = 255 * v[0]; white = v[0] === 1; label = 'Gray ' + Math.round((1 - v[0]) * 100) + '%'; }
+    else if (kind === 'rgb') { [r, g, b] = v.map(x => 255 * x); ink = 100 * (1 - Math.min(...v)); pure = v.every(x => x === 1); label = 'RGB ' + v.map(x => Math.round(x * 255)).join(' '); }
+    else if (kind === 'gray') { r = g = b = 255 * v[0]; ink = 100 * (1 - v[0]); pure = v[0] === 1; label = 'Gray ' + Math.round((1 - v[0]) * 100) + '%'; }
     else { r = g = b = 160; label = kind === 'pattern' ? 'Pattern / gradient' : key; }
+    const white = pure || (ink != null && Number.isFinite(ink) && ink <= nearWhitePct + 1e-9);
     const css = 'rgb(' + [r, g, b].map(x => Math.round(Math.max(0, Math.min(255, x)))).join(',') + ')';
-    return { css, white, label };
+    return { css, white, nearWhite: white && !pure, label };
   }
 
   /* ---------- geometry ---------- */
@@ -357,7 +363,8 @@
      ===================================================================== */
   function designsFor(job, st) {
     const thr = 0.1 * MM;   // only lines too fine to print at all are ignored by weight
-    const sig = thr + '|' + [...job.notArt].join(',') + '|' + [...job.excluded].join(',');
+    if (st && st.nearWhite != null) setNearWhite(st.nearWhite);
+    const sig = thr + '|' + nearWhitePct + '|' + [...job.notArt].join(',') + '|' + [...job.excluded].join(',');
     if (job._d && job._d.sig === sig) return job._d;
     let frames = findFrames(job), framed = true;
     if (!frames.length) { frames = fallbackFrames(job, thr); framed = false; }
@@ -416,7 +423,7 @@
       return false;
     };
 
-    const claimed = new Set(); let guideCount = 0;
+    const claimed = new Set(); let guideCount = 0, nearWhiteCount = 0;
     const designs = pairs.map((fr, k) => {
       const art = [], knock = [];
       for (const e of job.els) {
@@ -429,7 +436,7 @@
         const strokeInk = !guide && e.stroke && !keyInfo(e.stroke.key).white && !job.notArt.has(e.stroke.key);
         const fillWhite = e.fill && keyInfo(e.fill.key).white;
         if (fillInk || strokeInk) { art.push({ i: e.i, fill: fillInk ? e.fill.key : null, stroke: strokeInk ? e.stroke.key : null, bb: e.stroke && strokeInk ? e.stroke.bb : e.bb }); claimed.add(e.i); }
-        else if (fillWhite) knock.push(e.i);
+        else if (fillWhite) { knock.push(e.i); if (keyInfo(e.fill.key).nearWhite) nearWhiteCount++; }
       }
       const colours = new Map();
       art.forEach(a => [a.fill, a.stroke].forEach(c => { if (c) colours.set(c, (colours.get(c) || 0) + 1); }));
@@ -445,7 +452,7 @@
     job.els.forEach(e => [e.fill && e.fill.key, e.stroke && e.stroke.key].forEach(c => { if (c && !keyInfo(c).white) allColours.set(c, (allColours.get(c) || 0) + 1); }));
     const artKeys = new Set(); designs.forEach(d => d.colours.forEach(c => artKeys.add(c.key)));
     const colourList = [...allColours.keys()].filter(k => artKeys.has(k) || job.notArt.has(k)).map(key => ({ key, ...keyInfo(key), art: artKeys.has(key) }));
-    return (job._d = { sig, framed, designs, ignored, guides, colours: colourList });
+    return (job._d = { sig, framed, designs, ignored, guides, nearWhite: nearWhiteCount, colours: colourList });
   }
 
   /* No platen frame in the file: group printable elements into blobs, pair blobs of equal size,
@@ -608,7 +615,7 @@
   function describe(job, st) {
     const r = designsFor(job, st);
     return {
-      framed: r.framed, ignored: r.ignored, guides: r.guides, colours: r.colours,
+      framed: r.framed, ignored: r.ignored, guides: r.guides, nearWhite: r.nearWhite, colours: r.colours,
       designs: r.designs.map(d => ({
         index: d.index, off: d.off, colours: d.colours,
         frames: d.frames.map(f => ({ w: W_(f) / MM, h: H_(f) / MM, cx: (f[0] + f[2]) / 2 / MM })),

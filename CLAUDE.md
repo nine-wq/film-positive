@@ -17,6 +17,7 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
 - Designs are found from platen frames: dashed/solid rectangles assembled from same-style axis-aligned segments, closed sock-shaped outlines (stroke) or outlined rings (fill with ink ratio < 0.15). Same-size frames side by side = one design (left+right). Fallback: cluster artwork when no frame.
 - Artwork = printable elements whose centre is inside a frame. Guides are decided by role, not line weight: frame lines, dashed lines, colours used for dimension lines outside frames (and never for fills inside), large stroke-only shapes ≥60% of the frame, pieces on the frame edge. Only < 0.1 mm lines are dropped by weight.
 - Single-colour film: every artwork colour → black; white shapes inside frames knock out. Clipped to frames.
+- Near-white counts as white (setting `nearWhite`, default 5 = total ink C+M+Y+K ≤ 5%, or RGB/gray within 5% of white): customer files carry invisible leftovers such as a C 0.1% box with a star-shaped hole. They knock out like white; the card reports how many.
 - Edge compensation per design: auto = thickness × factor (default 0.5), manual µm, none. Implemented as round-join stroke 2r on fills (holes shrink), stroke width + 2r on strokes (caps unchanged).
 - Marks: 3 faint crosses on the centre line between frames; 2-line faint label 10 mm below the lowest cross (customer - file / thickness · compensation · date).
 
