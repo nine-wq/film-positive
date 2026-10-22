@@ -231,6 +231,7 @@
             const lwPt = gs.lw * Math.sqrt(Math.abs(gs.ctm[0] * gs.ctm[3] - gs.ctm[1] * gs.ctm[2])) || gs.lw;
             const el = { i, bb, s: Math.sqrt(Math.abs(gs.ctm[0] * gs.ctm[3] - gs.ctm[1] * gs.ctm[2])) || 1 };
             if (doFill) { el.fill = { key: gs.fill }; if (W_(bb) > 20 * MM && H_(bb) > 20 * MM) el.fill.ratio = inkRatio(subs, bb); }
+            if (subs.length > 1) el.subMm = subs.map(p => { const q = bboxOf(p); return Math.max(W_(q), H_(q)) / MM; });
             if (doStroke) el.stroke = { key: gs.stroke, lw: lwPt, lwUser: gs.lw, dash: gs.dash, segs, closed, bb: [bb[0] - lwPt / 2, bb[1] - lwPt / 2, bb[2] + lwPt / 2, bb[3] + lwPt / 2] };
             els.push(el);
           }
@@ -361,10 +362,11 @@
      Anything outside the frames (notes, dimensions, sketches) is not artwork,
      and neither are hairlines inside a frame (guide circles, construction lines).
      ===================================================================== */
+  const elById = (job, i) => (job._elBy || (job._elBy = new Map(job.els.map(e => [e.i, e])))).get(i);
   function designsFor(job, st) {
     const thr = 0.1 * MM;   // only lines too fine to print at all are ignored by weight
     if (st && st.nearWhite != null) setNearWhite(st.nearWhite);
-    const sig = thr + '|' + nearWhitePct + '|' + [...job.notArt].join(',') + '|' + [...job.excluded].join(',');
+    const sig = thr + '|' + nearWhitePct + '|' + (st && st.speckMm) + '|' + [...job.notArt].join(',') + '|' + [...job.excluded].join(',');
     if (job._d && job._d.sig === sig) return job._d;
     let frames = findFrames(job), framed = true;
     if (!frames.length) { frames = fallbackFrames(job, thr); framed = false; }
@@ -418,18 +420,25 @@
         const t = 1.5 * MM, b = e.bb;
         const onEdge = (Math.abs(b[0] - f[0]) < t || Math.abs(b[2] - f[2]) < t || Math.abs(b[1] - f[1]) < t || Math.abs(b[3] - f[3]) < t) && (W_(b) < t || H_(b) < t || (W_(b) < 5 * MM && H_(b) < 5 * MM));
         if (onEdge) return true;
-        if (W_(e.bb) >= 0.6 * W_(f) || H_(e.bb) >= 0.6 * H_(f)) return true;
+        // big closed outline with no fill (guide circle / ellipse); open lines are artwork unless another rule says guide
+        if (e.stroke.closed && (W_(e.bb) >= 0.6 * W_(f) || H_(e.bb) >= 0.6 * H_(f))) return true;
       }
       return false;
     };
 
-    const claimed = new Set(); let guideCount = 0, nearWhiteCount = 0;
+    const claimed = new Set(); let guideCount = 0, nearWhiteCount = 0, speckCount = 0;
+    const speck = (st && st.speckMm != null ? Number(st.speckMm) : 0.2) * MM;
     const designs = pairs.map((fr, k) => {
       const art = [], knock = [];
       for (const e of job.els) {
         if (claimed.has(e.i)) continue;
         const inF = fr.some(f => centreIn(e.bb, f));
         if (!inF) continue;
+        // specks: separate pieces smaller than the limit are leftovers from path editing, not artwork
+        if (!e.text && (e.fill || e.stroke)) {
+          const b = e.stroke ? e.stroke.bb : e.bb;
+          if (Math.max(W_(b), H_(b)) < speck && (e.fill ? !keyInfo(e.fill.key).white : !keyInfo(e.stroke.key).white)) { speckCount++; continue; }
+        }
         const guide = isGuideStroke(e, fr);
         if (guide && !e.fill) guideCount++;
         const fillInk = !(job.frameEls && job.frameEls.has(e.i)) && e.fill && !keyInfo(e.fill.key).white && !job.notArt.has(e.fill.key);
@@ -452,7 +461,11 @@
     job.els.forEach(e => [e.fill && e.fill.key, e.stroke && e.stroke.key].forEach(c => { if (c && !keyInfo(c).white) allColours.set(c, (allColours.get(c) || 0) + 1); }));
     const artKeys = new Set(); designs.forEach(d => d.colours.forEach(c => artKeys.add(c.key)));
     const colourList = [...allColours.keys()].filter(k => artKeys.has(k) || job.notArt.has(k)).map(key => ({ key, ...keyInfo(key), art: artKeys.has(key) }));
-    return (job._d = { sig, framed, designs, ignored, guides, nearWhite: nearWhiteCount, colours: colourList });
+    // tiny subpaths inside artwork paths (and lone move-to points) are dropped when the film is drawn
+    let subSpecks = 0;
+    designs.forEach(d => d.art.forEach(a => { const e = elById(job, a.i); if (e && e.subMm) subSpecks += e.subMm.filter(v => v < speck / MM).length; }));
+    designs.forEach(d => { d.speckMm = speck / MM; });
+    return (job._d = { sig, framed, designs, ignored, guides, nearWhite: nearWhiteCount, specks: speckCount + subSpecks, colours: colourList });
   }
 
   /* No platen frame in the file: group printable elements into blobs, pair blobs of equal size,
@@ -498,7 +511,7 @@
     const role = new Map(); d.art.forEach(a => role.set(a.i, a));
     const elBy = job._elBy || (job._elBy = new Map(job.els.map(e => [e.i, e])));
     const r = Math.max(0, (st && st.offsetUm || 0) / 1000 * MM);
-    const out = []; let pathStart = -1, clipInPath = false;
+    const out = []; let pathStart = -1, clipInPath = false, pathOps = [];
     const f = (v) => v.toFixed(3);
     out.push('q');
     d.frames.forEach(fr => out.push(`${f(fr[0])} ${f(fr[1])} ${f(W_(fr))} ${f(H_(fr))} re`));
@@ -509,10 +522,27 @@
       if (COLOUR.has(o.op) || o.op === 'sh' || o.op === 'BI' || o.op === 'Do') continue;
       if (o.op === 'q') depth++;
       if (o.op === 'Q') { if (depth === 0) continue; depth--; }
-      if (PATH.has(o.op) && pathStart < 0) { pathStart = out.length; clipInPath = false; }
+      if (PATH.has(o.op) && pathStart < 0) { pathStart = out.length; clipInPath = false; pathOps = []; }
+      if (PATH.has(o.op)) pathOps.push(o);
       if (o.op === 'W' || o.op === 'W*') clipInPath = true;
       if (PAINT.has(o.op)) {
         const a = role.get(i), e = elBy.get(i);
+        const hasSpecks = a && e && e.subMm && e.subMm.some(v => v < (d.speckMm || 0));
+        const outline = r > 0 && a && a.fill && !a.stroke;   // a filled shape that gets the compensation outline
+        if ((hasSpecks || outline) && pathStart >= 0 && !clipInPath) {
+          // rebuild the path: drop speck subpaths (and lone move-tos); close every subpath so the outline has no gaps
+          const keep = []; let n = -1, open = false;
+          const closeIt = () => { if (outline && open) keep.push('h'); open = false; };
+          for (const po of pathOps) {
+            if (po.op === 'm' || po.op === 're') { closeIt(); n++; }
+            const drop = hasSpecks && n >= 0 && e.subMm[n] != null && e.subMm[n] < d.speckMm;
+            if (drop) continue;
+            keep.push(po.args.map(x => x.raw).concat(po.op).join(' '));
+            open = po.op !== 'h' && po.op !== 're';
+          }
+          closeIt();
+          out.splice(pathStart, out.length - pathStart, ...keep);
+        }
         let fillMode = 'drop', strokeMode = 'drop';
         if (a) { if (a.fill) fillMode = 'ink'; if (a.stroke) strokeMode = 'ink'; }
         else if (d.knock.has(i)) fillMode = 'knock';
@@ -525,7 +555,7 @@
         if (r > 0 && (F || T) && e) {
           const sc = e.s || 1, grow = 2 * r / sc;
           if (T) { pre += `0 0 0 1 K ${f((e.stroke.lwUser || 0) + grow)} w 1 j `; }   // keep the line's own end caps
-          else { pre += `0 0 0 1 K ${f(grow)} w 1 j 1 J [] 0 d `; }   // outline the filled shape (black grows, white shrinks)
+          else { pre += `0 0 0 1 K ${f(grow)} w 1 j 0 J [] 0 d `; }   // outline the filled shape (black grows, white shrinks)
           paint = F ? (star ? 'b*' : 'b') : (close ? 's' : 'S');
           if (F && T) paint = close ? (star ? 'b*' : 'b') : (star ? 'B*' : 'B');
           if (!T && F && !close) paint = star ? 'b*' : 'b';
@@ -615,7 +645,7 @@
   function describe(job, st) {
     const r = designsFor(job, st);
     return {
-      framed: r.framed, ignored: r.ignored, guides: r.guides, nearWhite: r.nearWhite, colours: r.colours,
+      framed: r.framed, ignored: r.ignored, guides: r.guides, nearWhite: r.nearWhite, specks: r.specks, colours: r.colours,
       designs: r.designs.map(d => ({
         index: d.index, off: d.off, colours: d.colours,
         frames: d.frames.map(f => ({ w: W_(f) / MM, h: H_(f) / MM, cx: (f[0] + f[2]) / 2 / MM })),

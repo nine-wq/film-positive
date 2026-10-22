@@ -15,7 +15,7 @@ const MAX_THUMB = 300 * 1024;       // รูปตัวอย่างต่�
 const MAX_ORIG = 95 * 1024 * 1024;  // ไฟล์ต้นฉบับ (Workers รับคำขอได้ไม่เกิน 100 MB)
 
 // ค่าที่แอปฟิล์มรับ (ค่าอื่นในคำขอถูกทิ้ง)
-const NUM_KEYS = ['sheetW', 'sheetH', 'margin', 'gap', 'markArm', 'markGrey', 'markWidthMm', 'labelGrey', 'nearWhite', 'defaultThick', 'factor'];
+const NUM_KEYS = ['sheetW', 'sheetH', 'margin', 'gap', 'markArm', 'markGrey', 'markWidthMm', 'labelGrey', 'nearWhite', 'speckMm', 'defaultThick', 'factor'];
 const BOOL_KEYS = ['labels', 'cropMarks'];
 
 function clean(input) {
