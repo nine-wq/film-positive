@@ -1,4 +1,11 @@
-/vendor/*
+/vendor/sw.js
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: no-cache
+
+/*
   Cache-Control: public, max-age=31536000, immutable
 
 /*

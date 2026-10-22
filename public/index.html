@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="เตรียมฟิล์ม positive สำหรับถ่ายบล็อคสกรีนจากไฟล์ลูกค้า (.ai / .pdf)">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#4a3fb0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1d2027" media="(prefers-color-scheme: dark)">
+<script>if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));</script>
 <style>:root{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>ฟิล์มบล็อคสกรีน</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -108,6 +113,9 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .tabs button { font: 600 .9rem var(--font-body); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 6px 16px; cursor: pointer }
 .tabs button[aria-selected="true"] { background: var(--accent); color: var(--bg) }
 .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.headr { display: flex; flex-wrap: wrap; align-items: center; gap: 8px }
+.install { font: 600 .85rem var(--font-body); color: var(--accent); background: transparent; border: 1px solid var(--accent); border-radius: 8px; padding: 6px 12px; cursor: pointer }
+.install:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .setup { display: grid; gap: 16px; max-width: 760px }
 .savebar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px }
 .ghost { font: 500 .85rem var(--font-body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer }
@@ -231,11 +239,14 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 <div class="wrap">
   <header>
     <h1>ฟิล์มบล็อคสกรีน <small>เตรียมฟิล์ม positive จากไฟล์ลูกค้า</small></h1>
+    <div class="headr">
+    <button type="button" class="install" id="installBtn" hidden title="ติดตั้งเป็นแอปบนเครื่องนี้ รับไฟล์จากปุ่มแชร์ได้">ติดตั้งแอป</button>
     <nav class="tabs" role="tablist" aria-label="หน้า">
       <button type="button" role="tab" id="tabWork" aria-controls="viewWork" aria-selected="true">งานฟิล์ม</button>
       <button type="button" role="tab" id="tabHist" aria-controls="viewHist" aria-selected="false">ประวัติ</button>
       <button type="button" role="tab" id="tabSetup" aria-controls="viewSetup" aria-selected="false">ตั้งค่า</button>
     </nav>
+    </div>
   </header>
 
   <div class="hist" id="viewHist" role="tabpanel" aria-labelledby="tabHist" hidden>
@@ -1223,7 +1234,39 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     renderJobs();
     try { await Promise.race([document.fonts.load('10px "IBM Plex Sans Thai"', 'ก'), new Promise(r => setTimeout(r, 2500))]); } catch (e) {}
     build();
+    takeShared();
   })();
+
+  /* ---------- installed app: install button + files shared from other apps (LINE, e-mail, Files) ---------- */
+  let installEvt = null;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('installBtn').hidden = false; });
+  window.addEventListener('appinstalled', () => { installEvt = null; $('installBtn').hidden = true; });
+  $('installBtn').addEventListener('click', async () => {
+    if (!installEvt) return;
+    installEvt.prompt(); try { await installEvt.userChoice; } catch (e) {}
+    installEvt = null; $('installBtn').hidden = true;
+  });
+  // the service worker (sw.js) keeps shared files in a cache and opens ./?share=…
+  async function takeShared() {
+    const q = new URLSearchParams(location.search); if (!q.has('share')) return;
+    history.replaceState(null, '', location.pathname);
+    if (!window.caches) return;
+    try {
+      const cache = await caches.open('film-share'), keys = await cache.keys(), files = [];
+      for (const k of keys) {
+        const r = await cache.match(k); if (!r) continue;
+        const buf = new Uint8Array(await r.arrayBuffer());
+        let name = decodeURIComponent(r.headers.get('x-name') || '') || 'shared';
+        if (!/\.(ai|pdf|zip)$/i.test(name)) {   // some apps share without a usable extension: look at the bytes
+          const head = String.fromCharCode.apply(null, buf.subarray(0, 1024));
+          if (head.indexOf('%PDF') >= 0) name += '.pdf'; else if (head.slice(0, 2) === 'PK') name += '.zip';
+        }
+        files.push(new File([buf], name)); await cache.delete(k);
+      }
+      if (files.length) { setStatus(`รับไฟล์ที่แชร์มา ${files.length} ไฟล์`); await addFiles(files); }
+      else if (q.get('share') === 'none') setStatus('ไม่ได้รับไฟล์จากการแชร์ ลองแชร์ไฟล์ .ai / .pdf / .zip อีกครั้ง', true);
+    } catch (e) { setStatus('รับไฟล์ที่แชร์มาไม่สำเร็จ: ' + e.message, true); }
+  }
 })();
 </script>
 

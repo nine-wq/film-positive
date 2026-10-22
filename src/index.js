@@ -79,6 +79,8 @@ function contentDisposition(kind, name) {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    // a share that arrives before the service worker is running: just open the app
+    if (url.pathname === '/share-target') return Response.redirect(new URL('/?share=none', url).toString(), 303);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
     if (!env.DB) return json({ error: 'no_db', message: 'ยังไม่ได้เชื่อมฐานข้อมูล stencil-db (binding DB)' }, 503);
     try {
