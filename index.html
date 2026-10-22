@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="เตรียมฟิล์ม positive สำหรับถ่ายบล็อคสกรีนจากไฟล์ลูกค้า (.ai / .pdf)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>:root{color-scheme:light}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>ฟิล์มบล็อคสกรีน</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a light-table workbench. Left rail = job tray + settings; right = the film sheet on the light table. */
+:root {
+  --bg: #eef0f3;          /* light-table housing */
+  --panel: #f9fafb;
+  --line: #d5d9e0;
+  --fg: #1c2230;
+  --muted: #5d6576;
+  --accent: #4a3fb0;      /* diazo emulsion violet */
+  --accent-soft: #e6e3f7;
+  --table: #fdfdfb;       /* film on the glass */
+  --warn: #9a5b00;
+  --warn-soft: #fbefd9;
+  --bad: #b3261e;
+  --font-body: "IBM Plex Sans Thai", "Noto Sans Thai", "Leelawadee UI", Tahoma, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15171c; --panel: #1d2027; --line: #333845; --fg: #e6e8ee; --muted: #9aa1b2;
+  --accent: #a69cf5; --accent-soft: #2c2850; --table: #2a2d35; --warn: #f0b860; --warn-soft: #3a2e17; --bad: #ff8a80; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15171c; --panel: #1d2027; --line: #333845; --fg: #e6e8ee; --muted: #9aa1b2;
+  --accent: #a69cf5; --accent-soft: #2c2850; --table: #2a2d35; --warn: #f0b860; --warn-soft: #3a2e17; --bad: #ff8a80; color-scheme: dark }
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 20px }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px }
+h1 { font-size: 1.45rem; font-weight: 600; margin: 0; letter-spacing: .01em; text-wrap: balance }
+h1 small { font-weight: 400; color: var(--muted); font-size: .9rem; margin-left: 8px }
+h2 { font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin: 0 }
+.mono { font-family: var(--font-data); font-variant-numeric: tabular-nums }
+.grid { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 20px; align-items: start }
+@media (max-width: 880px) { .grid { grid-template-columns: minmax(0, 1fr) } }
+.rail { display: grid; gap: 16px; min-width: 0 }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 6px; text-align: center;
+  background: var(--panel); cursor: pointer; transition: border-color .15s, background .15s }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft) }
+.drop strong { font-weight: 600 }
+.drop span { color: var(--muted); font-size: .85rem }
+.drop input { display: none }
+
+.jobs { display: grid; gap: 10px }
+.job { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px }
+@media (max-width: 420px) { .job { grid-template-columns: minmax(0, 1fr) } .thumb { width: 100%; max-width: 240px } }
+.job.sample { border-style: dashed }
+.thumb { width: 120px; aspect-ratio: 1; max-width: 100%; background: #fff; border-radius: 6px; border: 1px solid var(--line); display: grid; place-items: center; overflow: hidden }
+.thumb canvas { max-width: 100%; max-height: 100%; display: block }
+.jhead { display: flex; justify-content: space-between; gap: 8px; align-items: start }
+.jname { font-weight: 600; word-break: break-all; font-size: .92rem; line-height: 1.35 }
+.tag { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 1px 6px; margin-left: 6px; white-space: nowrap }
+.meta { font-size: .8rem; color: var(--muted); margin-top: 2px }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px 2px 3px;
+  font: 500 .74rem var(--font-data); background: transparent; color: var(--muted); cursor: pointer }
+.chip i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); display: block }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--fg); background: var(--accent-soft) }
+.chip[aria-pressed="true"]::after { content: "ลาย"; font-family: var(--font-body); font-size: .68rem; color: var(--accent); font-weight: 600 }
+.chip:disabled { cursor: default; opacity: .55 }
+.row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-top: 8px; font-size: .8rem; color: var(--muted) }
+select, input[type=number] { font: inherit; font-size: .85rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px }
+input[type=number] { width: 4.6em; font-family: var(--font-data) }
+.x { border: 0; background: transparent; color: var(--muted); font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 2px 4px; border-radius: 4px }
+.x:hover { color: var(--bad) }
+.warns { margin: 8px 0 0; padding: 6px 9px; list-style: none; background: var(--warn-soft); color: var(--warn); border-radius: 6px; font-size: .78rem; display: grid; gap: 2px }
+.designs { display: grid; gap: 4px; margin-top: 8px }
+.design { display: flex; align-items: center; gap: 8px; font-size: .78rem; cursor: pointer }
+.design.off { color: var(--muted); text-decoration: line-through }
+.dnum { display: inline-grid; place-items: center; min-width: 18px; height: 18px; border-radius: 4px; background: var(--accent); color: var(--bg); font: 600 .72rem var(--font-data) }
+.design.off .dnum { background: var(--muted) }
+.dbox { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--line) }
+.dbox:first-child { border-top: 0; padding-top: 2px }
+.dbox.off .spec { opacity: .5 }
+.spec { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; padding-left: 26px }
+.spec label { display: grid; gap: 2px; font-size: .72rem; color: var(--muted); min-width: 0 }
+.spec select, .spec input { width: 100%; min-width: 0 }
+.spec input:disabled { opacity: 1; color: var(--muted); background: transparent; border-style: dashed; cursor: not-allowed }
+.spec .result { grid-column: 1 / -1; font-size: .78rem; color: var(--accent); font-weight: 500 }
+@media (max-width: 520px) { .spec { padding-left: 0 } }
+.form textarea, .form input[type=text] { font: .85rem var(--font-data); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 100%; resize: vertical }
+.swatches { display: inline-flex; gap: 3px; margin-left: auto }
+.swatches i { width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); display: block }
+.design .mono { min-width: 0; flex: 1 1 auto }
+.design input, .design .dnum, .swatches { flex: none }
+.design { align-items: flex-start } .design .dnum { margin-top: 1px }
+.meta + .meta, .designs + .meta { margin-top: 6px }
+.err { color: var(--bad); font-size: .82rem; margin-top: 4px }
+
+section.settings, details.settings { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px }
+details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
+.tabs { display: inline-flex; gap: 4px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 9px }
+.tabs button { font: 600 .9rem var(--font-body); color: var(--muted); background: transparent; border: 0; border-radius: 7px; padding: 6px 16px; cursor: pointer }
+.tabs button[aria-selected="true"] { background: var(--accent); color: var(--bg) }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.setup { display: grid; gap: 16px; max-width: 760px }
+.savebar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px }
+.ghost { font: 500 .85rem var(--font-body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer }
+.ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.savestate { font-size: .82rem }
+.savestate.dirty { color: var(--warn) }
+.savestate.ok { color: var(--accent) }
+.sh { font-size: .95rem; text-transform: none; letter-spacing: 0; color: var(--fg); margin: 0 }
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin-top: 12px }
+.form label { display: grid; gap: 3px; font-size: .8rem; color: var(--muted) }
+.form label.check { display: flex; align-items: center; gap: 8px; color: var(--fg) }
+.form .full { grid-column: 1 / -1 }
+.unit { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .78rem }
+
+.stage { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 12px; min-width: 0 }
+.bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .85rem }
+.stats b { font-family: var(--font-data); font-weight: 500 }
+.btn { font: 600 .92rem var(--font-body); color: #fff; background: var(--accent); border: 0; border-radius: 8px; padding: 9px 16px; cursor: pointer }
+:root[data-theme="dark"] .btn { color: #15171c }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn { color: #15171c } }
+.btn:disabled { opacity: .45; cursor: default }
+.btn:focus-visible, .chip:focus-visible, .x:focus-visible, .drop:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.sheets { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; padding: 18px; background: var(--table); border-radius: 8px;
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 24px 24px; background-position: -1px -1px }
+.sheet { display: grid; gap: 6px; justify-items: center; min-width: 0 }
+.sheet canvas { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 20px rgba(0,0,0,.10); max-width: 100%; height: auto; display: block }
+.sheet .cap { font-size: .75rem; color: var(--muted); font-family: var(--font-data) }
+.note { font-size: .8rem; color: var(--muted); margin: 0 }
+.offset { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: .85rem; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg) }
+.offset b { font-weight: 600 }
+.offset .hint { color: var(--muted); font-size: .78rem }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden }
+.seg button { font: 500 .8rem var(--font-data); background: transparent; color: var(--fg); border: 0; padding: 4px 10px; cursor: pointer }
+.seg button + button { border-left: 1px solid var(--line) }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg) }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+.status { font-size: .82rem }
+.status:empty { display: none }
+.status.bad { color: var(--bad) }
+.empty { color: var(--muted); font-size: .9rem; padding: 48px 24px; text-align: center; max-width: 42ch; line-height: 1.7 }
+.empty b { color: var(--fg); font-size: 1rem }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>ฟิล์มบล็อคสกรีน <small>เตรียมฟิล์ม positive จากไฟล์ลูกค้า</small></h1>
+    <nav class="tabs" role="tablist" aria-label="หน้า">
+      <button type="button" role="tab" id="tabWork" aria-controls="viewWork" aria-selected="true">งานฟิล์ม</button>
+      <button type="button" role="tab" id="tabSetup" aria-controls="viewSetup" aria-selected="false">ตั้งค่า</button>
+    </nav>
+  </header>
+
+  <div class="setup" id="viewSetup" role="tabpanel" aria-labelledby="tabSetup" hidden>
+      <section class="settings" id="custBox">
+        <h2 class="sh">ลูกค้า ความหนาบล็อก และการชดเชยขอบ</h2>
+        <div class="form">
+          <label class="full">รายชื่อลูกค้า บรรทัดละราย: ชื่อ, ความหนาบล็อกปกติ (µm)
+            <textarea id="custList" rows="7" spellcheck="false"></textarea></label>
+          <label class="full">ความหนาบล็อกที่มีให้เลือก (µm คั่นด้วยจุลภาค)
+            <input type="text" id="thickList" inputmode="numeric"></label>
+          <label>ความหนาเมื่อไม่ระบุลูกค้า <span class="unit"><input type="number" id="defaultThick" step="50" min="0" value="0"> µm</span></label>
+          <label>ชดเชยอัตโนมัติ = ความหนา × <span class="unit"><input type="number" id="autoFactor" step="0.05" min="0" max="2"></span></label>
+          <p class="note full">ลูกค้าที่ชื่ออยู่ในชื่อไฟล์จะถูกเลือกให้อัตโนมัติ · ใส่ 0 ได้ถ้าไม่ต้องการความหนาเริ่มต้น</p>
+        </div>
+      </section>
+
+      <section class="settings" id="settingsBox">
+        <h2 class="sh">แผ่นฟิล์มและมาร์ค</h2>
+        <div class="form">
+          <label>ขนาดฟิล์ม กว้าง <span class="unit"><input type="number" id="sheetW" step="0.5" min="4"> นิ้ว</span></label>
+          <label>ยาว <span class="unit"><input type="number" id="sheetH" step="0.5" min="4"> นิ้ว</span></label>
+          <label>ขอบแผ่น <span class="unit"><input type="number" id="margin" step="1" min="0"> mm</span></label>
+          <label>ช่องห่างระหว่างงาน <span class="unit"><input type="number" id="gap" step="1" min="0"> mm</span></label>
+          <label>ขนาดกากบาท (ครึ่งแขน) <span class="unit"><input type="number" id="markArm" step="0.5" min="2"> mm</span></label>
+          <label>ความเข้มมาร์ค <span class="unit"><input type="number" id="markGrey" step="5" min="5" max="100"> % K</span></label>
+          <label>ความเข้มชื่องาน <span class="unit"><input type="number" id="labelGrey" step="5" min="5" max="100"> % K</span></label>
+          <label>ความหนาเส้นกากบาท <span class="unit"><input type="number" id="markWidthMm" step="0.05" min="0.05" max="2"> mm</span></label>
+          <label class="check"><input type="checkbox" id="labels"> ข้อความใต้ลาย</label>
+          <label class="check"><input type="checkbox" id="cropMarks"> เส้นตัด (crop mark)</label>
+          <p class="note full">ส่วนที่ไม่ใช่ลายแยกจากหน้าที่ของเส้น ไม่ได้ดูจากความหนา: เส้นกรอบแป้น เส้นรูปถุงเท้า เส้นประ เส้นสีเดียวกับเส้นบอกขนาดนอกกรอบ และเส้นวงใหญ่ที่คลุมเกือบทั้งแป้น (เช่นวงกลมร่าง) จะไม่ถูกทำเป็นสีดำ ถ้ายังมีสีที่ไม่ใช่ลายหลุดเข้ามา แตะที่วงสีบนการ์ดเพื่อตัดออก</p>
+          <p class="note full">กากบาท 3 จุด (บน กลาง ล่าง) วางบนเส้นกึ่งกลางระหว่างลายซ้ายและขวา ใต้ลายมี 2 บรรทัด (ห่างกากบาทล่างสุด 1 cm): ลูกค้า - ชื่อไฟล์ แล้วตามด้วยความหนาบล็อก · การชดเชยขอบ · วันที่ ทั้งหมดเป็นสีเทาจาง จึงถ่ายไม่ติดบล็อก · crop mark อยู่นอกแนวตัด</p>
+        </div>
+      </section>
+    <div class="savebar">
+      <button type="button" class="btn" id="saveAll">บันทึกการตั้งค่า</button>
+      <button type="button" class="ghost" id="reset">คืนค่าเริ่มต้น</button>
+      <span class="savestate" id="saveState" role="status"></span>
+    </div>
+    <p class="note">ไฟล์ทั้งหมดประมวลผลในเบราว์เซอร์นี้ ไม่ได้อัปโหลดไปที่ไหน · การตั้งค่าจำไว้ในเบราว์เซอร์นี้</p>
+  </div>
+
+  <div class="grid" id="viewWork" role="tabpanel" aria-labelledby="tabWork">
+    <section class="rail" aria-label="งาน">
+      <label class="drop" id="drop" tabindex="0">
+        <strong>ลากไฟล์ .ai / .pdf / .zip มาวางที่นี่</strong>
+        <span>หรือแตะเพื่อเลือกไฟล์ · ใส่ได้หลายไฟล์พร้อมกัน</span>
+        <input type="file" id="pick" multiple accept=".ai,.pdf,.zip,application/pdf,application/zip">
+      </label>
+
+      <div class="jobs" id="jobs"></div>
+
+    </section>
+
+    <section class="stage" aria-label="แผ่นฟิล์ม">
+      <div class="bar">
+        <div class="stats" id="stats"></div>
+        <button class="btn" id="save" disabled>บันทึก PDF ฟิล์ม</button>
+      </div>
+      <div class="status" id="status" role="status"></div>
+      <div class="sheets" id="sheets"><div class="empty">กำลังโหลดเครื่องมือ…</div></div>
+      <p class="note">สั่งพิมพ์ที่ 100% / Actual size เท่านั้น ห้ามใช้ Fit to page · ลายทุกชิ้นเป็นเวกเตอร์ขนาดจริง</p>
+    </section>
+  </div>
+</div>
+
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script src="js/film-core.js"></script>
+<script>
+(function () {
+  'use strict';
+  const C = window.FilmCore;
+  const $ = (id) => document.getElementById(id);
+  const DEFAULTS = { sheetW: 21, sheetH: 31, margin: 10, gap: 15, markArm: 5, markGrey: 25, markWidthMm: 0.15, labelGrey: 25, labels: true, cropMarks: false };
+  let st = { ...DEFAULTS };
+  try {
+    const s4 = JSON.parse(localStorage.getItem('film-settings-v4') || 'null');
+    if (s4) st = { ...DEFAULTS, ...s4 };
+    else {
+      const s3 = JSON.parse(localStorage.getItem('film-settings-v3') || 'null');
+      if (s3) { st = { ...DEFAULTS, ...s3, cropMarks: false }; if (s3.markWidth) st.markWidthMm = Math.round(s3.markWidth * 25.4 / 72 * 100) / 100; delete st.markWidth; }
+    }
+  } catch (e) {}
+  const jobs = []; let lastPdf = null; let seq = 0; let buildTimer = 0; let buildId = 0;
+  if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+
+  /* ---------- settings form ---------- */
+  const NUMS = ['sheetW', 'sheetH', 'margin', 'gap', 'markArm', 'markGrey', 'labelGrey', 'markWidthMm'];
+  function fillForm() { NUMS.forEach(k => $(k).value = st[k]); $('labels').checked = st.labels; $('cropMarks').checked = st.cropMarks; }
+  fillForm();
+  function stPlain() { const o = {}; Object.keys(DEFAULTS).forEach(k => o[k] = st[k]); return o; }
+  const LBL_FONT = '"IBM Plex Sans Thai", "Noto Sans Thai", Tahoma, sans-serif';
+  const mctx = document.createElement('canvas').getContext('2d');
+  function measureText(t, pt) { mctx.font = `${pt * 10}px ${LBL_FONT}`; return mctx.measureText(t).width / 10; }
+  async function labelImage(t, pt, grey) {
+    const S = 10;                                   // 10 px per pt, about 720 dpi
+    const w = Math.ceil(measureText(t, pt) * S) + 4, h = Math.ceil(pt * 1.45 * S);
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const g = cv.getContext('2d'); g.font = `${pt * S}px ${LBL_FONT}`; g.textBaseline = 'alphabetic';
+    const v = Math.round(255 * (1 - grey)); g.fillStyle = `rgb(${v},${v},${v})`; g.fillText(t, 2, pt * 1.1 * S);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+    return { png: new Uint8Array(await blob.arrayBuffer()), w: w / S, h: h / S };
+  }
+  st.measureText = measureText; st.labelImage = labelImage;
+  const today = new Date();
+  st.dateText = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+
+  /* ---------- customers & stencil thickness ---------- */
+  const CFG_DEFAULT = {
+    customers: [{ name: 'PALLY', thick: 500 }, { name: 'Skims Crew', thick: 500 }, { name: 'CARVE HOUSE', thick: 500 }, { name: 'REQ', thick: 500 }, { name: 'BERV', thick: 500 }],
+    thicknesses: [100, 200, 300, 400, 500, 600, 800], defaultThick: 500, factor: 0.5
+  };
+  let cfg = JSON.parse(JSON.stringify(CFG_DEFAULT));
+  try { const c = JSON.parse(localStorage.getItem('film-cfg-v1') || 'null'); if (c && Array.isArray(c.customers)) cfg = { ...cfg, ...c }; } catch (e) {}
+  st.autoFactor = cfg.factor;
+  function fillCfg() {
+    $('custList').value = cfg.customers.map(c => `${c.name}, ${c.thick}`).join('\n');
+    $('thickList').value = cfg.thicknesses.join(', ');
+    $('defaultThick').value = cfg.defaultThick; $('autoFactor').value = cfg.factor;
+  }
+  fillCfg();
+  function readCfgForm() {
+    const customers = $('custList').value.split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
+      const m = l.match(/^(.*?)[,\t;]\s*(\d+)\s*(µm|um)?$/i);
+      return m ? { name: m[1].trim(), thick: +m[2] } : { name: l, thick: null };
+    }).filter(c => c.name);
+    const thicknesses = [...new Set($('thickList').value.split(/[,\s]+/).filter(x => x !== '').map(Number).filter(v => isFinite(v) && v >= 0))].sort((a, b) => a - b);
+    const dt = parseFloat($('defaultThick').value), fa = parseFloat($('autoFactor').value);
+    return { customers, thicknesses: thicknesses.length ? thicknesses : CFG_DEFAULT.thicknesses,
+      defaultThick: isFinite(dt) && dt >= 0 ? dt : CFG_DEFAULT.defaultThick, factor: isFinite(fa) && fa >= 0 ? fa : 0.5 };
+  }
+  /* ---------- one save button for every setting on this tab ---------- */
+  function markDirty() { $('saveState').textContent = 'มีการแก้ไขที่ยังไม่ได้บันทึก'; $('saveState').className = 'savestate dirty'; }
+  $('viewSetup').addEventListener('input', markDirty);
+  $('viewSetup').addEventListener('change', markDirty);
+  $('saveAll').addEventListener('click', () => {
+    const bad = [];
+    NUMS.forEach(k => { const v = parseFloat($(k).value); if (isFinite(v) && v >= 0) st[k] = v; else bad.push(k); });
+    st.labels = $('labels').checked; st.cropMarks = $('cropMarks').checked;
+    cfg = readCfgForm(); st.autoFactor = cfg.factor;
+    saveSettings();
+    try { localStorage.setItem('film-cfg-v1', JSON.stringify(cfg)); } catch (e) {}
+    fillForm(); fillCfg();
+    // designs that still follow a customer default pick up the new thickness
+    jobs.forEach(r => { if (r.job && r.job.dset) Object.values(r.job.dset).forEach(ds => { if (!ds.thickSet) ds.thick = thickFor(ds.customer); }); });
+    renderJobs(); schedule(0);
+    $('saveState').textContent = bad.length ? 'บันทึกแล้ว (บางช่องไม่ใช่ตัวเลข จึงใช้ค่าเดิม)' : 'บันทึกการตั้งค่าแล้ว';
+    $('saveState').className = 'savestate ok';
+  });
+  $('reset').addEventListener('click', () => {
+    NUMS.forEach(k => $(k).value = DEFAULTS[k]); $('labels').checked = DEFAULTS.labels; $('cropMarks').checked = DEFAULTS.cropMarks;
+    const keep = cfg; cfg = JSON.parse(JSON.stringify(CFG_DEFAULT)); fillCfg(); cfg = keep;
+    $('saveState').textContent = 'ใส่ค่าเริ่มต้นแล้ว กดบันทึกการตั้งค่าเพื่อใช้งาน'; $('saveState').className = 'savestate dirty';
+  });
+  const custOf = (name) => cfg.customers.find(c => c.name === name);
+  const thickFor = (name) => { const c = custOf(name); return c && c.thick != null ? c.thick : cfg.defaultThick; };
+  function guessCustomer(fileName) {
+    const f = fileName.toLowerCase().replace(/[_\-.]+/g, ' ');
+    const g = f.replace(/\s+/g, '');
+    let best = null, bestScore = 0;
+    for (const c of cfg.customers) {
+      const n = c.name.toLowerCase().replace(/[_\-.]+/g, ' ').trim(); if (!n) continue;
+      let score = g.includes(n.replace(/\s+/g, '')) ? 100 + n.length : 0;          // whole name, spaces ignored
+      if (!score) n.split(/\s+/).forEach(tok => { if (tok.length >= 4 && g.includes(tok)) score += tok.length; });
+      if (score > bestScore) { best = c; bestScore = score; }
+    }
+    return best ? best.name : '';
+  }
+  function dsFor(j, idx, fileName) {
+    j.dset = j.dset || {};
+    if (!j.dset[idx]) { const cu = guessCustomer(fileName); j.dset[idx] = { customer: cu, thick: thickFor(cu), mode: 'auto', manualUm: 200 }; }
+    return j.dset[idx];
+  }
+  function saveSettings() { try { localStorage.setItem('film-settings-v4', JSON.stringify(stPlain())); } catch (e) {} }
+
+  /* ---------- tabs ---------- */
+  function showTab(which) {
+    const work = which !== 'setup';
+    $('viewWork').hidden = !work; $('viewSetup').hidden = work;
+    $('tabWork').setAttribute('aria-selected', String(work)); $('tabSetup').setAttribute('aria-selected', String(!work));
+    try { sessionStorage.setItem('film-tab', work ? 'work' : 'setup'); } catch (e) {}
+    if (work) schedule(0);
+  }
+  $('tabWork').addEventListener('click', () => showTab('work'));
+  $('tabSetup').addEventListener('click', () => showTab('setup'));
+  [$('tabWork'), $('tabSetup')].forEach(t => t.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const next = t.id === 'tabWork' ? 'setup' : 'work'; showTab(next); $(next === 'work' ? 'tabWork' : 'tabSetup').focus(); } }));
+
+  /* ---------- file intake ---------- */
+  const drop = $('drop');
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => addFiles([...e.dataTransfer.files]));
+  drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('pick').click(); } });
+  $('pick').addEventListener('change', e => { addFiles([...e.target.files]); e.target.value = ''; });
+
+  async function addFiles(files) {
+    const items = [];
+    for (const f of files) {
+      if (/\.zip$/i.test(f.name)) {
+        try {
+          const z = await JSZip.loadAsync(await f.arrayBuffer(), { decodeFileName: (b) => {
+            try { return new TextDecoder('utf-8', { fatal: true }).decode(b); } catch (e) {}
+            try { return new TextDecoder('windows-874').decode(b); } catch (e) { return String.fromCharCode.apply(null, b); } } });
+          const entries = Object.values(z.files).filter(e => !e.dir && /\.(ai|pdf)$/i.test(e.name) && !/(^|\/)(__MACOSX|\._)/.test(e.name));
+          if (!entries.length) setStatus('ไม่พบไฟล์ .ai หรือ .pdf ใน ' + f.name, true);
+          for (const e of entries) items.push({ name: e.name.split('/').pop(), bytes: new Uint8Array(await e.async('arraybuffer')) });
+        } catch (err) { setStatus('เปิดไฟล์ zip ไม่ได้: ' + f.name, true); }
+      } else if (/\.(ai|pdf)$/i.test(f.name)) items.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+      else setStatus('ข้ามไฟล์ ' + f.name + ' (รับเฉพาะ .ai .pdf .zip)', true);
+    }
+    if (!items.length) return;
+    for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].sample) jobs.splice(i, 1);
+    for (const it of items) await addJob(it.name, it.bytes, false);
+    renderJobs(); schedule(0);
+  }
+  async function addJob(name, bytes, sample) {
+    const fail = (e) => /PDF-compatible/.test(e.message) ? e.message : 'อ่านไฟล์นี้ไม่ได้ ไฟล์อาจเสียระหว่างส่ง ลองบีบเป็น .zip แล้วส่งใหม่ หรือ Save As PDF จาก Illustrator';
+    let n = 1;
+    try { n = await C.pageCount(bytes); } catch (e) { jobs.push({ id: ++seq, name, sample, bytes, error: fail(e) }); return; }
+    const base = name.replace(/\.(ai|pdf)$/i, ''), ext = (name.match(/\.(ai|pdf)$/i) || ['.pdf'])[0];
+    for (let p = 0; p < n; p++) {
+      const nm = n > 1 ? `${base} หน้า ${p + 1}${ext}` : name;
+      const rec = { id: ++seq, name: nm, sample, bytes: bytes.slice(0), page: p };
+      try { rec.job = await C.analyze(bytes, nm, p); } catch (e) { rec.error = fail(e); }
+      jobs.push(rec);
+    }
+  }
+
+  /* ---------- job cards ---------- */
+  const f1 = (v) => v.toFixed(1);
+  function renderJobs() {
+    const box = $('jobs'); box.textContent = '';
+    for (const rec of jobs) {
+      const card = document.createElement('article'); card.className = 'job' + (rec.sample ? ' sample' : '');
+      const th = document.createElement('div'); th.className = 'thumb'; card.appendChild(th);
+      const body = document.createElement('div'); body.style.minWidth = '0';
+      const head = document.createElement('div'); head.className = 'jhead';
+      const nm = document.createElement('div'); nm.className = 'jname'; nm.textContent = rec.name;
+      if (rec.sample) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'ตัวอย่าง'; nm.appendChild(t); }
+      const x = document.createElement('button'); x.className = 'x'; x.type = 'button'; x.textContent = '✕'; x.title = 'เอาไฟล์นี้ออก'; x.setAttribute('aria-label', 'เอา ' + rec.name + ' ออก');
+      x.addEventListener('click', () => { jobs.splice(jobs.indexOf(rec), 1); renderJobs(); schedule(0); });
+      head.append(nm, x); body.appendChild(head);
+      if (rec.error) { const e = document.createElement('div'); e.className = 'err'; e.textContent = rec.error; body.appendChild(e); card.appendChild(body); box.appendChild(card); continue; }
+      const j = rec.job; const d = C.describe(j, st);
+
+      const sum = document.createElement('div'); sum.className = 'meta';
+      sum.textContent = d.designs.length ? `พบ ${d.designs.length} ลาย` + (d.framed ? ' จากกรอบแป้นในไฟล์' : '') : 'ไม่พบลายในไฟล์นี้';
+      body.appendChild(sum);
+
+      const list = document.createElement('div'); list.className = 'designs';
+      d.designs.forEach((ds) => {
+        const set = dsFor(j, ds.index, rec.name);
+        const box2 = document.createElement('div'); box2.className = 'dbox' + (ds.off ? ' off' : '');
+        const row = document.createElement('label'); row.className = 'design' + (ds.off ? ' off' : '');
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !ds.off; cb.id = `d-${rec.id}-${ds.index}`;
+        cb.addEventListener('change', () => { if (cb.checked) j.excluded.delete(ds.index); else j.excluded.add(ds.index); renderJobs(); schedule(0); });
+        const num = document.createElement('span'); num.className = 'dnum'; num.textContent = ds.index + 1;
+        const txt = document.createElement('span'); txt.className = 'mono';
+        const fr = ds.frames[0];
+        txt.textContent = (ds.frames.length === 2 ? `ซ้าย-ขวา · แป้นละ ${f1(fr.w)} × ${f1(fr.h)} mm · กึ่งกลางห่าง ${f1(ds.centreDistance)} mm` : `แป้นเดียว ไม่มีคู่ · ${f1(fr.w)} × ${f1(fr.h)} mm`);
+        const sw = document.createElement('span'); sw.className = 'swatches';
+        ds.colours.forEach(c => { const i = document.createElement('i'); i.style.background = c.css; i.title = c.label; sw.appendChild(i); });
+        row.append(cb, num, txt, sw); box2.appendChild(row);
+
+        // customer / stencil thickness / edge compensation for this design
+        const spec = document.createElement('div'); spec.className = 'spec';
+        const mk = (labelText, el) => { const l = document.createElement('label'); const t = document.createElement('span'); t.textContent = labelText; l.append(t, el); spec.appendChild(l); return l; };
+        const selC = document.createElement('select'); selC.id = `cu-${rec.id}-${ds.index}`;
+        const names = cfg.customers.map(c => c.name); if (set.customer && !names.includes(set.customer)) names.push(set.customer);
+        [['', 'ไม่ระบุลูกค้า'], ...names.map(n => [n, n])].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; selC.appendChild(o); });
+        selC.value = set.customer;
+        selC.addEventListener('change', () => { set.customer = selC.value; set.thick = thickFor(selC.value); set.thickSet = false; renderJobs(); schedule(0); });
+        mk('ลูกค้า', selC);
+        const selT = document.createElement('select'); selT.id = `th-${rec.id}-${ds.index}`;
+        const ths = cfg.thicknesses.slice(); if (set.thick != null && !ths.includes(set.thick)) ths.push(set.thick); ths.sort((a, b) => a - b);
+        ths.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = `${v} µm`; selT.appendChild(o); });
+        selT.value = set.thick;
+        selT.addEventListener('change', () => { set.thick = +selT.value; set.thickSet = true; renderJobs(); schedule(0); });
+        mk('ความหนาบล็อก', selT);
+        const selM = document.createElement('select'); selM.id = `cm-${rec.id}-${ds.index}`;
+        [['auto', 'อัตโนมัติ'], ['manual', 'ระบุค่า'], ['none', 'ไม่ชดเชย']].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; selM.appendChild(o); });
+        selM.value = set.mode;
+        selM.addEventListener('change', () => { if (selM.value === 'manual' && set.mode === 'auto') set.manualUm = C.compensation(set, st); set.mode = selM.value; renderJobs(); schedule(0); });
+        mk('ชดเชยขอบ', selM);
+        // value box: editable when "ระบุค่า", otherwise shows the computed value and cannot be edited
+        const um = C.compensation(set, st);
+        const inp = document.createElement('input'); inp.type = 'number'; inp.min = 0; inp.max = 2000; inp.step = 10; inp.id = `mu-${rec.id}-${ds.index}`;
+        inp.value = set.mode === 'manual' ? set.manualUm : um;
+        inp.disabled = set.mode !== 'manual';
+        inp.title = set.mode === 'auto' ? `คำนวณอัตโนมัติ: ${set.thick} × ${st.autoFactor}` : set.mode === 'none' ? 'ไม่ชดเชยขอบ' : 'ระบุค่าชดเชยขอบต่อด้าน';
+        inp.addEventListener('change', () => { const v = +inp.value; if (isFinite(v) && v >= 0) { set.manualUm = v; renderJobs(); schedule(0); } });
+        mk('ค่า µm', inp);
+        box2.appendChild(spec);
+        list.appendChild(box2);
+      });
+      body.appendChild(list);
+
+      // colours found in the artwork: all become black; tap one to leave it out
+      if (d.colours.length) {
+        const chips = document.createElement('div'); chips.className = 'chips';
+        for (const c of d.colours) {
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'chip';
+          const s = document.createElement('i'); s.style.background = c.css; b.appendChild(s);
+          b.appendChild(document.createTextNode(c.label));
+          b.setAttribute('aria-pressed', String(c.art));
+          b.title = c.art ? 'สีนี้เป็นส่วนของลาย จะกลายเป็นสีดำ แตะเพื่อตัดสีนี้ออกจากลาย' : 'สีนี้ถูกตัดออกจากลาย แตะเพื่อนับกลับเป็นลาย';
+          b.addEventListener('click', () => { if (c.art) j.notArt.add(c.key); else j.notArt.delete(c.key); renderJobs(); schedule(0); });
+          chips.appendChild(b);
+        }
+        body.appendChild(chips);
+      }
+
+      const notes = [];
+      const nCol = d.colours.filter(c => c.art).length;
+      if (nCol > 1) notes.push(`ลายใช้ ${nCol} สีในไฟล์ ทุกสีกลายเป็นสีดำในฟิล์มเดียว`);
+      if (d.ignored) notes.push(`ไม่นำมาทำฟิล์ม ${d.ignored} ชิ้นที่อยู่นอกกรอบ (คำอธิบาย ขนาด ตัวอย่างสี)`);
+      if (d.guides) notes.push(`ตัดเส้นกรอบ เส้นร่าง และเส้นประในแป้นออก ${d.guides} เส้น`);
+      if (notes.length) { const m = document.createElement('div'); m.className = 'meta'; m.textContent = notes.join(' · '); body.appendChild(m); }
+      const warns = j.warnings.slice();
+      if (d.designs.length && !d.framed) warns.unshift('ไม่พบกรอบแป้นในไฟล์ จึงแยกลายจากกลุ่มชิ้นงานแทน ตรวจภาพย่อว่ากรอบตรงกับลายจริง');
+      if (warns.length) { const ul = document.createElement('ul'); ul.className = 'warns'; warns.forEach(w => { const li = document.createElement('li'); li.textContent = w; ul.appendChild(li); }); body.appendChild(ul); }
+      card.appendChild(body); box.appendChild(card);
+      thumb(rec, th);
+    }
+  }
+  const pageCache = new Map();
+  async function thumb(rec, el) {
+    if (!window.pdfjsLib || rec.error) return;
+    try {
+      let pc = pageCache.get(rec.id);
+      if (!pc) {
+        const doc = await pdfjsLib.getDocument({ data: rec.bytes.slice(0), isEvalSupported: false, verbosity: 0 }).promise;
+        const pg = await doc.getPage((rec.page || 0) + 1); const v1 = pg.getViewport({ scale: 1 });
+        const px = 240 * Math.min(2, window.devicePixelRatio || 1);
+        const vp = pg.getViewport({ scale: px / Math.max(v1.width, v1.height) });
+        const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
+        await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+        pc = { cv, vp }; pageCache.set(rec.id, pc); doc.destroy();
+      }
+      const out = document.createElement('canvas'); out.width = pc.cv.width; out.height = pc.cv.height;
+      const g = out.getContext('2d'); g.drawImage(pc.cv, 0, 0);
+      const d = C.describe(rec.job, st); const k = out.width / 240;
+      const rect = (bb) => { const a = pc.vp.convertToViewportPoint(bb[0], bb[1]), b = pc.vp.convertToViewportPoint(bb[2], bb[3]);
+        return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])]; };
+      // wash out everything that is not inside a used frame
+      g.save(); g.beginPath(); g.rect(0, 0, out.width, out.height);
+      d.designs.filter(ds => !ds.off).forEach(ds => ds.boxes.forEach(f => { const [x, y, w, h] = rect(f); g.rect(x, y, w, h); }));
+      g.fillStyle = 'rgba(255,255,255,.72)'; g.fill('evenodd'); g.restore();
+      g.font = `600 ${12 * k}px sans-serif`;
+      d.designs.forEach(ds => {
+        const col = ds.off ? '#8a8f99' : '#4a3fb0';
+        g.strokeStyle = col; g.lineWidth = 1.5 * k; g.setLineDash(ds.off ? [4 * k, 3 * k] : []);
+        ds.boxes.forEach(f => { const [x, y, w, h] = rect(f); g.strokeRect(x, y, w, h); });
+        const [x, y] = rect(ds.boxes[0]);
+        g.setLineDash([]); g.fillStyle = col; g.fillRect(x, y, 16 * k, 15 * k);
+        g.fillStyle = '#fff'; g.fillText(String(ds.index + 1), x + 4 * k, y + 11.5 * k);
+      });
+      el.textContent = ''; el.appendChild(out);
+    } catch (e) {}
+  }
+
+  /* ---------- build + preview ---------- */
+  function schedule(ms) { clearTimeout(buildTimer); buildTimer = setTimeout(build, ms == null ? 300 : ms); }
+  function setStatus(t, bad) { const s = $('status'); s.textContent = t || ''; s.classList.toggle('bad', !!bad); }
+  async function build() {
+    const id = ++buildId;
+    const ready = jobs.filter(r => r.job);
+    let blocks = []; ready.forEach(r => { C.describe(r.job, st).designs.forEach(ds => dsFor(r.job, ds.index, r.name)); blocks = blocks.concat(C.blocksFor(r.job, st)); });
+    const stats = $('stats'); stats.textContent = '';
+    if (!blocks.length) { lastPdf = null; $('save').disabled = true; $('sheets').innerHTML = '<div class="empty"><b>ยังไม่มีงาน</b><br>ลากไฟล์ลูกค้า (.ai / .pdf / .zip) มาวางทางซ้าย แอปจะหากรอบแป้น แยกลาย ทำเป็นสีดำ และเรียงลงฟิล์ม ' + `${st.sheetW}×${st.sheetH}″` + ' ให้ที่นี่</div>'; return; }
+    let res;
+    try { res = await C.render(blocks, st); } catch (e) { setStatus('สร้างฟิล์มไม่สำเร็จ: ' + e.message, true); return; }
+    if (id !== buildId) return;
+    lastPdf = res.bytes; $('save').disabled = !res.plan.sheets.length;
+    const MM = C.MM, plan = res.plan;
+    const used = plan.sheets.map(s => (plan.H - st.margin * MM - Math.min(...s.map(it => it.y))) / MM);
+    const addStat = (k, v) => { const s = document.createElement('span'); s.append(k + ' '); const b = document.createElement('b'); b.textContent = v; s.appendChild(b); stats.appendChild(s); };
+    addStat('ฟิล์ม', `${plan.sheets.length} แผ่น`);
+    addStat('บล็อก', `${blocks.length - plan.tooBig.length}`);
+    addStat('ขนาด', `${st.sheetW}×${st.sheetH}″`);
+    addStat('วันที่', st.dateText);
+    if (plan.sheets.length) addStat('ใช้ความยาวแผ่นสุดท้าย', `${Math.round(used[used.length - 1])} / ${Math.round(plan.H / MM)} mm`);
+    setStatus(plan.tooBig.length ? 'ใหญ่เกินแผ่นฟิล์ม วางไม่ได้: ' + plan.tooBig.map(t => t.b.label).join(', ') : '', !!plan.tooBig.length);
+    await preview(res.bytes, id, used, plan);
+  }
+  async function preview(bytes, id, used, plan) {
+    const box = $('sheets');
+    if (!window.pdfjsLib) { box.innerHTML = '<div class="empty">โหลดตัวแสดงตัวอย่างไม่ได้ แต่ยังบันทึก PDF ได้</div>'; return; }
+    const doc = await pdfjsLib.getDocument({ data: bytes.slice(0), isEvalSupported: false, verbosity: 0 }).promise;
+    const frag = document.createDocumentFragment();
+    const avail = Math.max(240, box.clientWidth - 36);
+    const per = doc.numPages > 1 && avail > 640 ? (avail - 16) / 2 : avail;
+    for (let i = 1; i <= doc.numPages; i++) {
+      const pg = await doc.getPage(i); const v1 = pg.getViewport({ scale: 1 });
+      const cssW = Math.min(per, 560); const sc = cssW / v1.width * Math.min(2, window.devicePixelRatio || 1);
+      const vp = pg.getViewport({ scale: sc });
+      const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height; cv.style.width = cssW + 'px';
+      await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+      if (id !== buildId) { doc.destroy(); return; }
+      const wrap = document.createElement('div'); wrap.className = 'sheet'; wrap.appendChild(cv);
+      const cap = document.createElement('div'); cap.className = 'cap';
+      cap.textContent = `แผ่น ${i} · ${plan.sheets[i - 1].length} บล็อก · ใช้ ${Math.round(used[i - 1])} mm`;
+      wrap.appendChild(cap); frag.appendChild(wrap);
+    }
+    doc.destroy();
+    if (id !== buildId) return;
+    box.textContent = ''; box.appendChild(frag);
+  }
+  let rw = 0; window.addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => schedule(0), 250); });
+
+  /* ---------- save ---------- */
+  $('save').addEventListener('click', async () => {
+    if (!lastPdf) return;
+    const real = jobs.filter(r => r.job && !r.sample);
+    const d = new Date(); const p2 = (n) => String(n).padStart(2, '0'); const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    const base = real.length === 1 ? real[0].name.replace(/\.(ai|pdf)$/i, '') + '_film' : `film_${st.sheetW}x${st.sheetH}_${real.length || 1}jobs`;
+    const filename = `${base}_${stamp}.pdf`;
+    const inViewer = !!(window.claude && window.claude.use);
+    const downloads = inViewer ? await window.claude.use('downloads') : null;
+    if (!downloads) {
+      // opened as a plain file in a browser: an ordinary download works
+      const url = URL.createObjectURL(new Blob([lastPdf], { type: 'application/pdf' }));
+      const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      if (inViewer) setStatus('บันทึกไฟล์จากลิงก์นี้ไม่ได้สำหรับบัญชีนี้ ให้ล็อกอิน claude.ai ด้วยบัญชีที่ได้รับแชร์ แล้วเปิดลิงก์อีกครั้ง หรือใช้ไฟล์แอป .html ที่เปิดในเบราว์เซอร์ได้โดยตรง', true);
+      else setStatus('บันทึก ' + filename + ' แล้ว (ดูในโฟลเดอร์ดาวน์โหลด)');
+      return;
+    }
+    try { await downloads.save({ filename, data: new Blob([lastPdf], { type: 'application/pdf' }) }); setStatus('บันทึก ' + filename + ' แล้ว'); }
+    catch (e) {
+      const c = e && e.code;
+      if (c === 'declined') setStatus('ยกเลิกการบันทึก');
+      else if (c === 'rate_limited') setStatus('มีหน้าต่างบันทึกเปิดค้างอยู่ รอสักครู่แล้วลองใหม่', true);
+      else setStatus('บันทึกไม่สำเร็จในมุมมองนี้ (' + (c || 'unavailable') + ')', true);
+    }
+  });
+
+  /* ---------- start with a demo job ---------- */
+  (async function start() {
+    if (!window.PDFLib || !C) { $('sheets').innerHTML = '<div class="empty">โหลดเครื่องมือไม่สำเร็จ ลองรีเฟรชหน้า</div>'; return; }
+    renderJobs();
+    try { await Promise.race([document.fonts.load('10px "IBM Plex Sans Thai"', 'ก'), new Promise(r => setTimeout(r, 2500))]); } catch (e) {}
+    build();
+  })();
+})();
+</script>
+
+</body>
+</html>
