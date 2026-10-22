@@ -847,9 +847,11 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       del.addEventListener('click', async () => {
         if (!del.classList.contains('armed')) { del.classList.add('armed'); del.textContent = 'ยืนยันลบ'; armT = setTimeout(() => { del.classList.remove('armed'); del.textContent = 'ลบ'; }, 4000); return; }
         clearTimeout(armT); del.disabled = true; del.textContent = 'กำลังลบ…';
-        try { const r = await fetch('api/films/' + it.id, { method: 'DELETE' }); if (!r.ok) throw new Error(r.status);
+        try { const r = await fetch('api/films/' + it.id, { method: 'DELETE' });
+          if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || d.error || ('HTTP ' + r.status)); }
           hist.items = hist.items.filter(x => x.id !== it.id); renderHistory(); }
-        catch (e) { del.disabled = false; del.textContent = 'ลบไม่สำเร็จ'; }
+        catch (e) { del.disabled = false; del.classList.remove('armed'); del.textContent = 'ลบ';
+          $('histStatus').textContent = 'ลบ ' + it.name + ' ไม่สำเร็จ: ' + e.message; $('histStatus').className = 'status bad'; }
       });
       act.append(view, dl, del);
       head.append(ht, act);

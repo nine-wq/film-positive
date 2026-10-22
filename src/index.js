@@ -194,7 +194,8 @@ async function api(req, env, url) {
       const words = String(url.searchParams.get('q') || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6);
       let sql = 'SELECT id, name, created, size, info FROM film_outputs WHERE created < ? AND created >= ? AND created < ?';
       const args = [before, from, to];
-      for (const w of words) { sql += " AND lower(name || ' ' || info) LIKE ? ESCAPE '\\'"; args.push('%' + w.replace(/[\\%_]/g, c => '\\' + c) + '%'); }
+      // instr() not LIKE: D1 rejects LIKE patterns longer than 50 bytes
+      for (const w of words) { sql += " AND instr(lower(name || ' ' || info), ?) > 0"; args.push(w.slice(0, 100)); }
       sql += ' ORDER BY created DESC LIMIT ?'; args.push(limit + 1);
       const r = await env.DB.prepare(sql).bind(...args).all();
       const rows = r.results.slice(0, limit).map(x => ({ id: x.id, name: x.name, created: x.created, size: x.size, info: JSON.parse(x.info || '{}') }));
@@ -222,16 +223,21 @@ async function api(req, env, url) {
           'content-disposition': contentDisposition(kind, row.name), 'cache-control': 'private, max-age=3600' } });
       }
       if (m === 'DELETE') {
+        // remove the history row first, then clean up files; a cleanup problem must not block the delete
         const meta = await env.DB.prepare('SELECT info FROM film_outputs WHERE id = ?').bind(id).first();
-        const shas = ((JSON.parse((meta && meta.info) || '{}').originals) || []).map(o => o.sha).filter(x => /^[a-f0-9]{64}$/.test(x));
-        for (const sha of shas) {
-          const other = await env.DB.prepare('SELECT 1 FROM film_outputs WHERE id != ? AND info LIKE ? LIMIT 1').bind(id, '%' + sha + '%').first();
-          if (!other) await env.FILES.delete(`film/orig/${sha}`);
-        }
-        await env.FILES.delete(`film/${id}.pdf`);
-        const listed = await env.FILES.list({ prefix: `film/${id}/` });
-        if (listed.objects.length) await env.FILES.delete(listed.objects.map(o => o.key));
+        let shas = [];
+        try { shas = ((JSON.parse((meta && meta.info) || '{}').originals) || []).map(o => o.sha).filter(x => /^[a-f0-9]{64}$/.test(x)); } catch {}
         await env.DB.prepare('DELETE FROM film_outputs WHERE id = ?').bind(id).run();
+        const keys = [`film/${id}.pdf`];
+        try {
+          const listed = await env.FILES.list({ prefix: `film/${id}/` });
+          listed.objects.forEach(o => keys.push(o.key));
+          for (const sha of shas) {
+            const other = await env.DB.prepare('SELECT 1 FROM film_outputs WHERE instr(info, ?) > 0 LIMIT 1').bind(sha).first();
+            if (!other) keys.push(`film/orig/${sha}`);
+          }
+          await env.FILES.delete(keys);
+        } catch (e) { console.log('film delete cleanup', id, String(e && e.message || e)); }
         return json({ ok: true });
       }
       return json({ error: 'method' }, 405);
