@@ -8,6 +8,7 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
   - `/api/settings` GET → `{film, customers, features}`, PUT `{film, baseUpdated}` → 409 on stale base.
   - `/api/films` POST multipart (`name`, `info` JSON, `file` PDF, optional `thumb_<n>` image per info.items[n]) → archive; GET `?limit&before&q&from&to` → newest first (q = words, all must match name/info). `/api/films/:id` GET (inline, `?dl=1` attachment), DELETE (also removes `film/<id>/` thumbs). `/api/films/:id/t<n>` = design thumbnail.
 - D1 binding `DB` = **stencil-db, shared with the stencil-log app**. Read `settings.key='master'` (customers, `customerSpecs[name].target` µm) — never write it. Write only `settings.key='film'` and the app's own table `film_outputs` (id, name, created, size, info JSON). Never alter stencil-log tables.
+- Google Drive backup of customer originals (`src/drive.js`): service account JWT (RS256 via WebCrypto) → `/api/drive/check`, `/api/drive/upload?film&name&sha&customer` (raw body, resumable upload, streamed). Files go to `<GDRIVE_FOLDER_ID>/<YYYY-MM>/<original name>` with appProperties `sha256` (same sha = reuse, no re-upload); links are appended to `film_outputs.info.originals`. Secrets (Cloudflare dashboard, type Secret): `GDRIVE_SA_KEY` (whole JSON), `GDRIVE_FOLDER_ID`. Optional `GDRIVE_TOKEN_URL`/`GDRIVE_API` overrides exist only for local mock tests (`.dev.vars`, never committed).
 - R2 binding `FILES` = **stencil-files, shared with stencil-log**. This app only uses keys under `film/` (`film/<id>.pdf`, thumbnails `film/<id>/t<n>`).
 - No build step. `public/js/film-core.js` = analysis/rendering core (also runs in Node with `require('pdf-lib')` for tests). `public/index.html` = UI.
 - Vendored libs in `public/vendor/` (pdf-lib 1.17.1, JSZip 3.10.1, PDF.js 3.11.174 with a real worker).
@@ -20,7 +21,7 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
 - Marks: 3 faint crosses on the centre line between frames; 2-line faint label 10 mm below the lowest cross (customer - file / thickness · compensation · date).
 
 ## Rules
-- Saving a PDF downloads it and, by default ("เก็บสำเนาในประวัติ"), archives it; the ประวัติ tab lists, opens, downloads and deletes archived films.
+- Saving a PDF downloads it and, by default ("เก็บสำเนาในประวัติ"), archives it, then ("สำรองต้นฉบับขึ้น Google Drive", shown only when Drive is configured) uploads each distinct original once; the ประวัติ tab lists, opens, downloads and deletes archived films.
 - UI text in Thai; must work at 400 px width and in dark mode.
 - Before pushing: `node --check public/js/film-core.js` and `node --check --input-type=module < src/index.js`.
 - Deploy = push to `main` (Workers Builds runs `npx wrangler deploy`). No secrets in the repo.

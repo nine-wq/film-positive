@@ -24,13 +24,31 @@
 ฐานข้อมูล `stencil-db` และที่เก็บไฟล์ R2 `stencil-files` (ตัวเดียวกับ stencil-log) ถูกผูกไว้ใน `wrangler.jsonc` แล้ว ไม่ต้องตั้งค่าเพิ่ม
 ฟิล์มที่เก็บอยู่ใต้ `film/` ใน bucket และรายการอยู่ในตาราง `film_outputs` (สร้างเองอัตโนมัติ)
 
+## สำรองไฟล์ต้นฉบับขึ้น Google Drive (ทำครั้งเดียว)
+ต้องใช้ Google Workspace ที่มี Shared drive
+
+1. **Google Cloud Console** (console.cloud.google.com) → สร้างโปรเจกต์ เช่น `viczo-film`
+   → APIs & Services → Library → เปิดใช้ **Google Drive API**
+2. IAM & Admin → **Service Accounts** → Create service account ชื่อ `film-backup` (ไม่ต้องให้ role ใด ๆ)
+   → เข้าไปที่ service account นั้น → แท็บ **Keys** → Add key → Create new key → **JSON** → ไฟล์จะถูกดาวน์โหลด
+3. **Google Drive** → Shared drives → สร้าง (หรือเลือก) Shared drive เช่น `Film Originals`
+   → Manage members → เพิ่มอีเมลของ service account (`film-backup@<โปรเจกต์>.iam.gserviceaccount.com`) เป็น **Content manager**
+   → เปิดโฟลเดอร์ปลายทาง แล้วคัดลอก ID จาก URL (`drive.google.com/drive/folders/<ID>`)
+4. **Cloudflare** → Workers & Pages → film-positive → Settings → **Variables and Secrets** → Add (ชนิด **Secret**) 2 ตัว:
+   - `GDRIVE_SA_KEY` = เนื้อหาไฟล์ JSON จากข้อ 2 ทั้งไฟล์
+   - `GDRIVE_FOLDER_ID` = ID จากข้อ 3
+5. เปิดแอป → แท็บ **ตั้งค่า** → "สำรองต้นฉบับขึ้น Google Drive" → **ทดสอบการเชื่อมต่อ** ต้องขึ้นว่า "เชื่อมต่อแล้ว"
+
+ไฟล์ JSON ของ service account เป็นกุญแจลับ ห้ามใส่ใน GitHub เก็บเฉพาะใน Cloudflare Secret
+
 ## โครงสร้างไฟล์
 | ไฟล์ | หน้าที่ |
 |---|---|
 | `public/index.html` | หน้าแอปและส่วนติดต่อผู้ใช้ |
 | `public/js/film-core.js` | วิเคราะห์ไฟล์ หากรอบแป้น แยกลาย ชดเชยขอบ และสร้าง PDF |
 | `public/vendor/` | pdf-lib 1.17.1, JSZip 3.10.1, PDF.js 3.11.174 |
-| `src/index.js` | API: `/api/settings` (การตั้งค่าร่วม), `/api/films` (ประวัติฟิล์ม PDF) |
+| `src/index.js` | API: `/api/settings` (การตั้งค่าร่วม), `/api/films` (ประวัติฟิล์ม PDF), `/api/drive/*` |
+| `src/drive.js` | ส่งไฟล์ต้นฉบับขึ้น Google Drive ด้วย service account |
 | `wrangler.jsonc` | การตั้งค่า Cloudflare |
 
 ## รันบนเครื่องเพื่อทดสอบ

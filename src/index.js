@@ -7,6 +7,8 @@
 //   - อ่าน/เขียน:   ตาราง film_outputs + R2 key 'film/<id>.pdf' -> ประวัติฟิล์ม PDF ที่บันทึก
 // ไม่แตะข้อมูลอื่นของ stencil-log
 
+import { driveReady, checkDrive, uploadOriginal, DriveError } from './drive.js';
+
 const json = (d, status = 200) =>
   new Response(JSON.stringify(d), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
@@ -57,15 +59,18 @@ function safeName(s) {
   const n = String(s || '').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 180);
   return /\.pdf$/i.test(n) ? n : (n || 'film') + '.pdf';
 }
+function safeOrig(s) {
+  return String(s || 'original').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 200) || 'original';
+}
 function cleanInfo(raw) {
   let o = {};
   try { o = JSON.parse(raw || '{}'); } catch { o = {}; }
   const str = (v, n = 200) => String(v == null ? '' : v).slice(0, n);
   const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : null; };
   const items = Array.isArray(o.items) ? o.items.slice(0, 200).map(it => ({
-    file: str(it.file), customer: str(it.customer, 100), thick: num(it.thick), compUm: num(it.compUm), mode: str(it.mode, 10), thumb: false
+    file: str(it.file), src: str(it.src), customer: str(it.customer, 100), thick: num(it.thick), compUm: num(it.compUm), mode: str(it.mode, 10), thumb: false
   })) : [];
-  return { sheets: num(o.sheets), blocks: num(o.blocks), sheetW: num(o.sheetW), sheetH: num(o.sheetH), date: str(o.date, 20), items };
+  return { sheets: num(o.sheets), blocks: num(o.blocks), sheetW: num(o.sheetW), sheetH: num(o.sheetH), date: str(o.date, 20), items, originals: [] };
 }
 function contentDisposition(kind, name) {
   const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '');
@@ -94,7 +99,7 @@ async function api(req, env, url) {
   if (p === '/settings') {
     if (m === 'GET') {
       const [film, master] = await Promise.all([getSetting(env, 'film'), getSetting(env, 'master')]);
-      return json({ film: film || null, customers: customersFrom(master), features: { history: !!env.FILES } });
+      return json({ film: film || null, customers: customersFrom(master), features: { history: !!env.FILES, drive: driveReady(env) } });
     }
     if (m === 'PUT') {
       let body;
@@ -109,6 +114,35 @@ async function api(req, env, url) {
       return json({ film });
     }
     return json({ error: 'method' }, 405);
+  }
+
+  // ---------- สำรองไฟล์ต้นฉบับขึ้น Google Drive ----------
+  if (p === '/drive/check' && m === 'GET') {
+    if (!driveReady(env)) return json({ ok: false, error: 'not_configured', message: 'ยังไม่ได้ตั้งค่า GDRIVE_SA_KEY และ GDRIVE_FOLDER_ID ใน Cloudflare' });
+    try { return json({ ok: true, ...(await checkDrive(env)) }); }
+    catch (e) { return json({ ok: false, error: e.code || 'drive', message: e.message }); }
+  }
+  if (p === '/drive/upload' && m === 'POST') {
+    if (!driveReady(env)) return json({ error: 'not_configured' }, 503);
+    const film = url.searchParams.get('film') || '';
+    const row = /^[a-f0-9]{16}$/.test(film) ? await env.DB.prepare('SELECT info FROM film_outputs WHERE id = ?').bind(film).first() : null;
+    if (!row) return json({ error: 'film_not_found' }, 404);
+    const size = Number(req.headers.get('content-length') || 0);
+    if (!size || !req.body) return json({ error: 'empty' }, 400);
+    if (size > 200 * 1024 * 1024) return json({ error: 'too_large' }, 413);
+    const name = safeOrig(url.searchParams.get('name'));
+    const sha = String(url.searchParams.get('sha') || '').toLowerCase();
+    const customer = String(url.searchParams.get('customer') || '').slice(0, 100);
+    const type = /\.pdf$/i.test(name) ? 'application/pdf' : /\.ai$/i.test(name) ? 'application/postscript' : 'application/octet-stream';
+    let up;
+    try { up = await uploadOriginal(env, { name, sha, size, type, body: req.body, props: { filmId: film, customer, app: 'film-positive' } }); }
+    catch (e) { return json({ error: e.code || 'drive', message: e.message }, e instanceof DriveError ? e.status : 502); }
+    // จดลิงก์ไว้กับรายการฟิล์ม
+    const info = JSON.parse(row.info || '{}');
+    info.originals = (info.originals || []).filter(o => o.name !== name);
+    info.originals.push({ name, id: up.id, link: up.link, sha: /^[a-f0-9]{64}$/.test(sha) ? sha : '' });
+    await env.DB.prepare('UPDATE film_outputs SET info = ? WHERE id = ?').bind(JSON.stringify(info), film).run();
+    return json({ ...up, name });
   }
 
   // ---------- ประวัติฟิล์ม PDF ----------

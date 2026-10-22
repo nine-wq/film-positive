@@ -144,6 +144,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .htxt { min-width: 0 }
 .hc { font-size: .88rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .hf { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.gd { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: .68rem; font-weight: 600; cursor: pointer }
 .hs { display: grid; justify-items: end; font: .78rem var(--font-data); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap }
 .hs span:last-child { color: var(--accent) }
 
@@ -237,6 +238,15 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
         </div>
       </section>
 
+      <section class="settings" id="driveBox">
+        <h2 class="sh">สำรองต้นฉบับขึ้น Google Drive</h2>
+        <div class="form">
+          <p class="note full" id="driveState">ยังไม่ได้ตรวจสอบ</p>
+          <button type="button" class="ghost" id="driveCheck" style="justify-self:start">ทดสอบการเชื่อมต่อ</button>
+          <p class="note full">เมื่อบันทึก PDF ฟิล์ม ไฟล์ต้นฉบับของลูกค้า (.ai / .pdf) จะถูกส่งขึ้นโฟลเดอร์ Google Drive ของบริษัท แยกโฟลเดอร์ตามเดือน ไฟล์ที่เหมือนเดิมทุกไบต์จะไม่อัปโหลดซ้ำ · การเชื่อมต่อตั้งค่าใน Cloudflare (GDRIVE_SA_KEY, GDRIVE_FOLDER_ID)</p>
+        </div>
+      </section>
+
       <section class="settings" id="settingsBox">
         <h2 class="sh">แผ่นฟิล์มและมาร์ค</h2>
         <div class="form">
@@ -279,6 +289,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
         <div class="stats" id="stats"></div>
         <div class="saveside">
           <label class="keep" id="keepWrap" hidden><input type="checkbox" id="keepCopy" checked> เก็บสำเนาในประวัติ</label>
+          <label class="keep" id="driveWrap" hidden><input type="checkbox" id="keepDrive" checked> สำรองต้นฉบับขึ้น Google Drive</label>
           <button class="btn" id="save" disabled>บันทึก PDF ฟิล์ม</button>
         </div>
       </div>
@@ -381,12 +392,23 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const r = await fetch('api/settings', { cache: 'no-store', signal: ctl.signal }); clearTimeout(tm);
       if (!r.ok) throw new Error('http ' + r.status);
       const d = await r.json();
-      remote.ok = true; remote.customers = Array.isArray(d.customers) ? d.customers : []; remote.history = !!(d.features && d.features.history);
+      remote.ok = true; remote.customers = Array.isArray(d.customers) ? d.customers : []; remote.history = !!(d.features && d.features.history); remote.drive = !!(d.features && d.features.drive);
       applyFilm(d.film);
     } catch (e) { remote.ok = false; }
     syncNote(); syncKeep();
     return remote.ok;
   }
+  async function checkDriveUi() {
+    const el = $('driveState');
+    if (!remote.ok) { el.textContent = 'ใช้ได้เฉพาะตอนเปิดแอปจากเว็บของบริษัท (Cloudflare)'; return; }
+    el.textContent = 'กำลังตรวจสอบ…';
+    try {
+      const d = await (await fetch('api/drive/check', { cache: 'no-store' })).json();
+      el.textContent = d.ok ? `เชื่อมต่อแล้ว · โฟลเดอร์ "${d.folder}"${d.sharedDrive ? ' (Shared drive)' : ''} · บัญชี ${d.account}` : 'ยังใช้ไม่ได้: ' + (d.message || d.error);
+      el.style.color = d.ok ? 'var(--accent)' : 'var(--warn)';
+    } catch (e) { el.textContent = 'ตรวจสอบไม่สำเร็จ'; el.style.color = 'var(--warn)'; }
+  }
+  $('driveCheck').addEventListener('click', checkDriveUi);
   function filmPayload() { return { ...stPlain(), thicknesses: cfg.thicknesses, defaultThick: cfg.defaultThick, factor: cfg.factor }; }
 
   function fillCfg() {
@@ -467,7 +489,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     TABS.forEach(([k, t, v]) => { $(v).hidden = k !== which; $(t).setAttribute('aria-selected', String(k === which)); });
     if (which === 'work') schedule(0);
     if (which === 'hist') loadHistory(true);
-    if (which === 'setup' && !/dirty/.test($('saveState').className)) loadRemote();
+    if (which === 'setup' && !/dirty/.test($('saveState').className)) loadRemote().then(() => { if (remote.drive) checkDriveUi(); else $('driveState').textContent = remote.ok ? 'ยังไม่ได้ตั้งค่าใน Cloudflare (GDRIVE_SA_KEY, GDRIVE_FOLDER_ID)' : 'ใช้ได้เฉพาะตอนเปิดแอปจากเว็บของบริษัท (Cloudflare)'; });
   }
   TABS.forEach(([k, t], i) => {
     $(t).addEventListener('click', () => showTab(k));
@@ -512,7 +534,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     const base = name.replace(/\.(ai|pdf)$/i, ''), ext = (name.match(/\.(ai|pdf)$/i) || ['.pdf'])[0];
     for (let p = 0; p < n; p++) {
       const nm = n > 1 ? `${base} หน้า ${p + 1}${ext}` : name;
-      const rec = { id: ++seq, name: nm, sample, bytes: bytes.slice(0), page: p };
+      const rec = { id: ++seq, name: nm, sample, bytes: bytes.slice(0), page: p, src: name, srcBytes: bytes };
       try { rec.job = await C.analyze(bytes, nm, p); } catch (e) { rec.error = fail(e); }
       jobs.push(rec);
     }
@@ -702,13 +724,19 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 
   /* ---------- history (server: R2 + film_outputs) ---------- */
   function historyOn() { return remote.ok && remote.history; }
-  function syncKeep() { $('keepWrap').hidden = !historyOn(); }
+  function syncKeep() {
+    $('keepWrap').hidden = !historyOn();
+    $('driveWrap').hidden = !(historyOn() && remote.drive);
+    $('keepDrive').disabled = !$('keepCopy').checked;
+  }
+  $('keepCopy').addEventListener('change', syncKeep);
   async function archive(filename, bytes, plan, blocks) {
     if (!historyOn() || !$('keepCopy').checked || !bytes) return;
     const order = plan ? plan.sheets.flatMap((sh, pi) => sh.map(it => ({ it, pi }))) : [];
     const items = order.map(({ it }) => it.b).map(b => {
       const ds = (b.job.dset && b.job.dset[b.design.index]) || {};
-      return { file: b.job.name, customer: ds.customer || '', thick: ds.thick != null ? ds.thick : null, compUm: b.offsetUm, mode: ds.mode || 'auto' };
+      const rec = jobs.find(r => r.job === b.job);
+      return { file: b.job.name, src: rec ? rec.src : b.job.name, customer: ds.customer || '', thick: ds.thick != null ? ds.thick : null, compUm: b.offsetUm, mode: ds.mode || 'auto' };
     });
     const info = { sheets: plan ? plan.sheets.length : 0, blocks: items.length, sheetW: st.sheetW, sheetH: st.sheetH, date: st.dateText, items };
     const fd = new FormData();
@@ -717,10 +745,34 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     try { (await makeThumbs(bytes, plan, order)).forEach((t, n) => { if (t) fd.append('thumb_' + n, t, `t${n}`); }); } catch (e) {}
     try {
       const r = await fetch('api/films', { method: 'POST', body: fd });
-      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+      const saved = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(saved.error || r.status);
       hist.items = null;   // refresh next time the tab opens
-      const s = $('status'); if (!s.classList.contains('bad')) setStatus((s.textContent ? s.textContent + ' · ' : '') + 'เก็บสำเนาในประวัติแล้ว');
+      const base = $('status').classList.contains('bad') ? '' : $('status').textContent;
+      setStatus((base ? base + ' · ' : '') + 'เก็บสำเนาในประวัติแล้ว');
+      if (remote.drive && $('keepDrive').checked) await backupOriginals(saved.id, order, items, base);
     } catch (e) { setStatus('ดาวน์โหลดแล้ว แต่เก็บสำเนาในประวัติไม่สำเร็จ (' + e.message + ')', true); }
+  }
+  // customer originals -> Google Drive (through the Worker's service account), one file at a time
+  async function sha256hex(u8) { const h = new Uint8Array(await crypto.subtle.digest('SHA-256', u8)); return [...h].map(x => x.toString(16).padStart(2, '0')).join(''); }
+  async function backupOriginals(filmId, order, items, base) {
+    const srcs = new Map();
+    order.forEach(({ it }, n) => { const rec = jobs.find(r => r.job === it.b.job); if (rec && rec.srcBytes && !rec.sample && !srcs.has(rec.src)) srcs.set(rec.src, { rec, customer: items[n].customer }); });
+    const list = [...srcs.values()]; let ok = 0, reused = 0; const fails = [];
+    for (let i = 0; i < list.length; i++) {
+      const { rec, customer } = list[i];
+      setStatus(`${base ? base + ' · ' : ''}เก็บสำเนาในประวัติแล้ว · กำลังสำรองต้นฉบับขึ้น Google Drive ${i + 1}/${list.length}…`);
+      try {
+        const sha = await sha256hex(rec.srcBytes);
+        const qs = new URLSearchParams({ film: filmId, name: rec.src, sha, customer });
+        const r = await fetch('api/drive/upload?' + qs, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: new Blob([rec.srcBytes]) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.message || d.error || r.status);
+        ok++; if (d.reused) reused++;
+      } catch (e) { fails.push(rec.src + ': ' + e.message); }
+    }
+    const msg = `${base ? base + ' · ' : ''}เก็บสำเนาในประวัติแล้ว · สำรองต้นฉบับขึ้น Google Drive ${ok}/${list.length} ไฟล์` + (reused ? ` (${reused} ไฟล์มีอยู่แล้ว ไม่อัปโหลดซ้ำ)` : '');
+    setStatus(fails.length ? msg + ' · ไม่สำเร็จ: ' + fails.join(', ') : msg, !!fails.length);
   }
   // one small picture per design, cut out of the finished film so it shows exactly what was saved
   async function makeThumbs(bytes, plan, order) {
@@ -826,6 +878,9 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
         const txt = document.createElement('div'); txt.className = 'htxt';
         const c = document.createElement('div'); c.className = 'hc'; c.textContent = x.customer || 'ไม่ระบุลูกค้า';
         const f = document.createElement('div'); f.className = 'hf'; f.textContent = x.file;
+        const orig = (info.originals || []).find(o => o.name === (x.src || x.file));
+        if (orig) { const ga = document.createElement('span'); ga.className = 'gd'; ga.textContent = 'ต้นฉบับใน Drive'; ga.title = 'เปิดไฟล์ต้นฉบับใน Google Drive';
+          ga.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); window.open(orig.link, '_blank', 'noopener'); }); f.prepend(ga); }
         txt.append(c, f);
         const spec = document.createElement('div'); spec.className = 'hs';
         const th = document.createElement('span'); th.textContent = x.thick ? `${x.thick} µm` : '—';
