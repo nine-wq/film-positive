@@ -178,6 +178,19 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .sheets { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; padding: 18px; background: var(--table); border-radius: 8px;
   background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 24px 24px; background-position: -1px -1px }
 .sheet { display: grid; gap: 6px; justify-items: center; min-width: 0 }
+.zv { position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: #2b2e35; color: #eef0f3;
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px) }
+.zvbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #1f2127; flex-wrap: wrap }
+.zvbar button { font: 600 .9rem var(--font-body); color: #eef0f3; background: #33363f; border: 1px solid #454955; border-radius: 7px; min-width: 36px; padding: 5px 10px; cursor: pointer }
+.zvbar button:disabled { opacity: .35; cursor: default }
+.zvbar button:focus-visible { outline: 2px solid #a69cf5; outline-offset: 2px }
+.zvpct { font-family: var(--font-data); min-width: 4.5em; text-align: center; font-variant-numeric: tabular-nums }
+.zvsp { flex: 1 }
+.zvbody { position: relative; overflow: hidden; touch-action: none; cursor: grab; outline: none }
+.zvbody:active { cursor: grabbing }
+.zvbody canvas { position: absolute; inset: 0; display: block }
+.zvhint { font-size: .75rem; color: #b8bcc6; text-align: center; padding: 6px 12px; background: #1f2127 }
+.sheet canvas { cursor: zoom-in }
 .sheet canvas { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 6px 20px rgba(0,0,0,.10); max-width: 100%; height: auto; display: block }
 .sheet .cap { font-size: .75rem; color: var(--muted); font-family: var(--font-data) }
 .note { font-size: .8rem; color: var(--muted); margin: 0 }
@@ -288,9 +301,27 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       </div>
       <div class="status" id="status" role="status"></div>
       <div class="sheets" id="sheets"><div class="empty">กำลังโหลดเครื่องมือ…</div></div>
-      <p class="note">สั่งพิมพ์ที่ 100% / Actual size เท่านั้น ห้ามใช้ Fit to page · ลายทุกชิ้นเป็นเวกเตอร์ขนาดจริง</p>
+      <p class="note">คลิกที่แผ่นฟิล์มเพื่อซูมดูรายละเอียด · สั่งพิมพ์ที่ 100% / Actual size เท่านั้น ห้ามใช้ Fit to page · ลายทุกชิ้นเป็นเวกเตอร์ขนาดจริง</p>
     </section>
   </div>
+</div>
+
+<div class="zv" id="zv" hidden role="dialog" aria-modal="true" aria-label="ดูฟิล์มแบบซูม">
+  <div class="zvbar">
+    <button type="button" id="zvPrev" aria-label="แผ่นก่อนหน้า">‹</button>
+    <span id="zvPage">แผ่น 1</span>
+    <button type="button" id="zvNext" aria-label="แผ่นถัดไป">›</button>
+    <span class="zvsp"></span>
+    <button type="button" id="zvOut" aria-label="ซูมออก">−</button>
+    <span id="zvPct" class="zvpct">100%</span>
+    <button type="button" id="zvIn" aria-label="ซูมเข้า">+</button>
+    <button type="button" id="zvFit">พอดีจอ</button>
+    <button type="button" id="zv100" title="ขนาดจริงบนจอ">100%</button>
+    <span class="zvsp"></span>
+    <button type="button" id="zvClose" aria-label="ปิด">ปิด ✕</button>
+  </div>
+  <div class="zvbody" id="zvBody" tabindex="-1"><canvas id="zvCanvas"></canvas></div>
+  <div class="zvhint">ล้อเมาส์หรือหนีบสองนิ้วเพื่อซูม · ลากเพื่อเลื่อน · ดับเบิลคลิกเพื่อขยาย · Esc ปิด</div>
 </div>
 
 <script src="vendor/pdf-lib.min.js"></script>
@@ -700,6 +731,8 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height; cv.style.width = cssW + 'px';
       await pg.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
       if (id !== buildId) { doc.destroy(); return; }
+      cv.title = 'คลิกเพื่อดูแบบซูม'; cv.tabIndex = 0; cv.setAttribute('role', 'button'); cv.setAttribute('aria-label', `ดูแผ่น ${i} แบบซูม`);
+      { const n = i - 1; cv.addEventListener('click', () => openViewer(n)); cv.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openViewer(n); } }); }
       const wrap = document.createElement('div'); wrap.className = 'sheet'; wrap.appendChild(cv);
       const cap = document.createElement('div'); cap.className = 'cap';
       cap.textContent = `แผ่น ${i} · ${plan.sheets[i - 1].length} บล็อก · ใช้ ${Math.round(used[i - 1])} mm`;
@@ -896,6 +929,128 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   $('histFrom').addEventListener('change', refilter); $('histTo').addEventListener('change', refilter);
   $('histClear').addEventListener('click', () => { $('histQ').value = ''; $('histFrom').value = ''; $('histTo').value = ''; loadHistory(true); });
   $('histMore').addEventListener('click', () => loadHistory(false));
+
+  /* ---------- zoom viewer: vector re-render of just the visible area ---------- */
+  const zv = { open: false, doc: null, docFor: null, page: 0, pages: 0, pg: null, w: 0, h: 0, scale: 1, tx: 0, ty: 0,
+    task: null, timer: 0, snap: null, pointers: new Map(), pinch: null, drag: null };
+  const zc = $('zvCanvas'), zctx = zc.getContext('2d');
+  const dpr = () => Math.min(3, window.devicePixelRatio || 1);
+  async function openViewer(pageIndex) {
+    if (!lastPdf || !window.pdfjsLib) return;
+    if (zv.docFor !== lastPdf) {
+      if (zv.doc) zv.doc.destroy();
+      zv.doc = await pdfjsLib.getDocument({ data: lastPdf.slice(0), isEvalSupported: false, verbosity: 0 }).promise;
+      zv.docFor = lastPdf;
+    }
+    zv.pages = zv.doc.numPages; zv.open = true;
+    $('zv').hidden = false; document.body.style.overflow = 'hidden';
+    await gotoPage(Math.max(0, Math.min(pageIndex, zv.pages - 1)));
+    $('zvBody').focus();
+  }
+  function closeViewer() {
+    zv.open = false; $('zv').hidden = true; document.body.style.overflow = '';
+    if (zv.task) { zv.task.cancel(); zv.task = null; }
+  }
+  async function gotoPage(n) {
+    zv.page = n; zv.pg = await zv.doc.getPage(n + 1);
+    const v = zv.pg.getViewport({ scale: 1 }); zv.w = v.width; zv.h = v.height;
+    $('zvPage').textContent = `แผ่น ${n + 1} / ${zv.pages}`;
+    $('zvPrev').disabled = n === 0; $('zvNext').disabled = n >= zv.pages - 1;
+    zv.snap = null; sizeCanvas(); fit();
+  }
+  function sizeCanvas() {
+    const r = $('zvBody').getBoundingClientRect(), k = dpr();
+    zc.width = Math.max(1, Math.round(r.width * k)); zc.height = Math.max(1, Math.round(r.height * k));
+    zc.style.width = r.width + 'px'; zc.style.height = r.height + 'px';
+  }
+  function fit() {
+    const r = $('zvBody').getBoundingClientRect(), pad = 24;
+    zv.scale = Math.min((r.width - 2 * pad) / zv.w, (r.height - 2 * pad) / zv.h);
+    zv.tx = (r.width - zv.w * zv.scale) / 2; zv.ty = (r.height - zv.h * zv.scale) / 2;
+    changed(true);
+  }
+  // 100% = real size on screen (1 pt = 1/72 in, CSS assumes 96 px per inch)
+  function zoomTo(scale, cx, cy) {
+    const r = $('zvBody').getBoundingClientRect();
+    if (cx == null) { cx = r.width / 2; cy = r.height / 2; }
+    scale = Math.max(0.05, Math.min(scale, 40));
+    zv.tx = cx - (cx - zv.tx) * scale / zv.scale; zv.ty = cy - (cy - zv.ty) * scale / zv.scale; zv.scale = scale;
+    changed();
+  }
+  function changed(now) {
+    $('zvPct').textContent = Math.round(zv.scale * 72 / 96 * 100) + '%';
+    quickDraw();
+    clearTimeout(zv.timer); zv.timer = setTimeout(sharpDraw, now ? 0 : 140);
+  }
+  function quickDraw() {   // while moving: stretch the last sharp bitmap, no PDF work
+    const k = dpr();
+    zctx.setTransform(1, 0, 0, 1, 0, 0); zctx.fillStyle = '#5b5f68'; zctx.fillRect(0, 0, zc.width, zc.height);
+    zctx.fillStyle = '#fff'; zctx.fillRect(zv.tx * k, zv.ty * k, zv.w * zv.scale * k, zv.h * zv.scale * k);
+    const s = zv.snap; if (!s) return;
+    const f = zv.scale / s.scale;
+    zctx.drawImage(s.canvas, (zv.tx - s.tx * f) * k, (zv.ty - s.ty * f) * k, s.canvas.width * f, s.canvas.height * f);
+  }
+  async function sharpDraw() {   // when still: render only the visible part of the page at screen resolution
+    if (!zv.open || !zv.pg) return;
+    if (zv.task) { zv.task.cancel(); zv.task = null; }
+    const k = dpr(), off = document.createElement('canvas'); off.width = zc.width; off.height = zc.height;
+    const g = off.getContext('2d'); g.fillStyle = '#5b5f68'; g.fillRect(0, 0, off.width, off.height);
+    g.fillStyle = '#fff'; g.fillRect(zv.tx * k, zv.ty * k, zv.w * zv.scale * k, zv.h * zv.scale * k);
+    const vp = zv.pg.getViewport({ scale: zv.scale * k });
+    const want = { scale: zv.scale, tx: zv.tx, ty: zv.ty };
+    zv.task = zv.pg.render({ canvasContext: g, viewport: vp, transform: [1, 0, 0, 1, zv.tx * k, zv.ty * k], background: 'rgba(0,0,0,0)' });
+    try { await zv.task.promise; } catch (e) { return; }   // cancelled by a newer move
+    zv.task = null;
+    if (want.scale !== zv.scale || want.tx !== zv.tx || want.ty !== zv.ty) return;
+    zv.snap = { canvas: off, ...want };
+    zctx.setTransform(1, 0, 0, 1, 0, 0); zctx.drawImage(off, 0, 0);
+  }
+  // mouse wheel / trackpad: zoom at the pointer (ctrl+wheel = pinch on trackpads too)
+  $('zvBody').addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = $('zvBody').getBoundingClientRect();
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    zoomTo(zv.scale * Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0018)), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  // drag to pan, two fingers to pinch
+  $('zvBody').addEventListener('pointerdown', e => {
+    $('zvBody').setPointerCapture(e.pointerId); zv.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (zv.pointers.size === 2) { const [a, b] = [...zv.pointers.values()]; zv.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), scale: zv.scale }; }
+    else zv.drag = { x: e.clientX, y: e.clientY, tx: zv.tx, ty: zv.ty };
+  });
+  $('zvBody').addEventListener('pointermove', e => {
+    if (!zv.pointers.has(e.pointerId)) return;
+    zv.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const r = $('zvBody').getBoundingClientRect();
+    if (zv.pointers.size === 2 && zv.pinch) {
+      const [a, b] = [...zv.pointers.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y);
+      zoomTo(zv.pinch.scale * d / zv.pinch.d, (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+    } else if (zv.drag) { zv.tx = zv.drag.tx + e.clientX - zv.drag.x; zv.ty = zv.drag.ty + e.clientY - zv.drag.y; changed(); }
+  });
+  const endPointer = e => { zv.pointers.delete(e.pointerId); if (zv.pointers.size < 2) zv.pinch = null; if (!zv.pointers.size) zv.drag = null; };
+  $('zvBody').addEventListener('pointerup', endPointer); $('zvBody').addEventListener('pointercancel', endPointer);
+  $('zvBody').addEventListener('dblclick', e => { const r = $('zvBody').getBoundingClientRect(); zoomTo(zv.scale * 2.5, e.clientX - r.left, e.clientY - r.top); });
+  $('zvIn').addEventListener('click', () => zoomTo(zv.scale * 1.5));
+  $('zvOut').addEventListener('click', () => zoomTo(zv.scale / 1.5));
+  $('zvFit').addEventListener('click', fit);
+  $('zv100').addEventListener('click', () => zoomTo(96 / 72));
+  $('zvPrev').addEventListener('click', () => gotoPage(zv.page - 1));
+  $('zvNext').addEventListener('click', () => gotoPage(zv.page + 1));
+  $('zvClose').addEventListener('click', closeViewer);
+  document.addEventListener('keydown', e => {
+    if (!zv.open) return;
+    if (e.key === 'Escape') closeViewer();
+    else if (e.key === '+' || e.key === '=') zoomTo(zv.scale * 1.5);
+    else if (e.key === '-') zoomTo(zv.scale / 1.5);
+    else if (e.key === '0') fit();
+    else if (e.key === '1') zoomTo(96 / 72);
+    else if (e.key === 'PageDown' && zv.page < zv.pages - 1) gotoPage(zv.page + 1);
+    else if (e.key === 'PageUp' && zv.page > 0) gotoPage(zv.page - 1);
+    else if (e.key.startsWith('Arrow')) { const st = 60; if (e.key === 'ArrowLeft') zv.tx += st; if (e.key === 'ArrowRight') zv.tx -= st; if (e.key === 'ArrowUp') zv.ty += st; if (e.key === 'ArrowDown') zv.ty -= st; changed(); }
+    else return;
+    e.preventDefault();
+  });
+  window.addEventListener('resize', () => { if (zv.open) { sizeCanvas(); changed(true); } });
 
   /* ---------- save ---------- */
   // while copies are being stored, warn before the page is closed
