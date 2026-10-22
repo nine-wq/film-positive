@@ -126,7 +126,9 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .hday { font-size: .75rem; font-weight: 600; letter-spacing: .06em; color: var(--muted); margin: 8px 0 0 }
 .hitem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden }
 .hhead { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 10px 12px }
-.htitle { display: flex; align-items: baseline; gap: 10px; min-width: 0 }
+.htitle { display: grid; gap: 1px; min-width: 0; flex: 1 1 260px }
+.hline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.hfile { font-size: .78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: all }
 .htitle b { font: 600 1rem var(--font-data); font-variant-numeric: tabular-nums }
 .htitle span { font-size: .8rem; color: var(--muted) }
 .hact { display: flex; gap: 6px }
@@ -797,7 +799,9 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const tm = document.createElement('b'); tm.textContent = fmtDate(it.created).slice(11);
       const sub = document.createElement('span');
       sub.textContent = [`${items.length || info.blocks || 0} ลาย`, info.sheets != null ? `${info.sheets} แผ่น` : '', fmtSize(it.size)].filter(Boolean).join(' · ');
-      ht.title = it.name; ht.append(tm, sub);
+      const line = document.createElement('div'); line.className = 'hline'; line.append(tm, sub);
+      const fn = document.createElement('div'); fn.className = 'hfile'; fn.textContent = it.name; fn.title = it.name;
+      ht.append(line, fn);
       const act = document.createElement('div'); act.className = 'hact';
       const view = document.createElement('a'); view.href = 'api/films/' + it.id; view.target = '_blank'; view.rel = 'noopener'; view.textContent = 'เปิด';
       const dl = document.createElement('a'); dl.href = 'api/films/' + it.id + '?dl=1'; dl.textContent = 'ดาวน์โหลด';
