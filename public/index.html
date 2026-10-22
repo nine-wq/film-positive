@@ -122,27 +122,29 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .histbar .hd { flex: 0 1 150px }
 .histbar input { width: 100%; min-width: 0; font: inherit; font-size: .88rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px }
 .histsum { font-size: .8rem; color: var(--muted); min-height: 1em }
-.thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px }
-.thumbs a { display: grid; justify-items: center; gap: 2px; text-decoration: none; color: var(--muted); font-size: .66rem; max-width: 92px }
-.thumbs img { height: 72px; width: auto; max-width: 92px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 3px }
-.thumbs span { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-.hdetail img { height: 40px; width: auto; background: #fff; border: 1px solid var(--line); border-radius: 4px; display: block }
 .histlist { display: grid; gap: 8px }
 .hday { font-size: .75rem; font-weight: 600; letter-spacing: .06em; color: var(--muted); margin: 8px 0 0 }
-.hitem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start }
-.hname { font-weight: 600; font-size: .9rem; word-break: break-all }
-.hmeta { font-size: .78rem; color: var(--muted); font-family: var(--font-data); font-variant-numeric: tabular-nums }
-.hcust { font-size: .82rem }
-.hact { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end }
+.hitem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden }
+.hhead { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 10px 12px }
+.htitle { display: flex; align-items: baseline; gap: 10px; min-width: 0 }
+.htitle b { font: 600 1rem var(--font-data); font-variant-numeric: tabular-nums }
+.htitle span { font-size: .8rem; color: var(--muted) }
+.hact { display: flex; gap: 6px }
 .hact a, .hact button { font: 500 .8rem var(--font-body); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; text-decoration: none }
 .hact button.del { color: var(--muted) }
 .hact button.del.armed { color: #fff; background: var(--bad); border-color: var(--bad) }
-.hdetail { grid-column: 1 / -1; font-size: .78rem; color: var(--muted) }
-.hdetail summary { cursor: pointer; width: max-content }
-.hdetail table { width: 100%; border-collapse: collapse; margin-top: 4px }
-.hdetail td { padding: 3px 6px; border-top: 1px solid var(--line); vertical-align: top }
-.hdetail td.num { font-family: var(--font-data); white-space: nowrap }
-@media (max-width: 520px) { .hitem { grid-template-columns: minmax(0, 1fr) } .hact { justify-content: flex-start } }
+.hrows { display: grid; border-top: 1px solid var(--line) }
+.hrow { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 12px; color: inherit; text-decoration: none }
+.hrow + .hrow { border-top: 1px solid var(--line) }
+.hrow:hover { background: var(--accent-soft) }
+.hpic { width: 44px; height: 44px; border-radius: 6px; background: #fff; border: 1px solid var(--line); overflow: hidden; display: grid; place-items: center }
+.hpic img { max-width: 100%; max-height: 100%; display: block }
+.htxt { min-width: 0 }
+.hc { font-size: .88rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.hf { font-size: .74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.hs { display: grid; justify-items: end; font: .78rem var(--font-data); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap }
+.hs span:last-child { color: var(--accent) }
+
 .sync { margin: 0; font-size: .84rem; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel) }
 .sync.on { border-color: var(--accent); color: var(--fg) }
 .sync.off { color: var(--warn) }
@@ -722,7 +724,7 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   async function makeThumbs(bytes, plan, order) {
     if (!window.pdfjsLib || !plan) return [];
     const doc = await pdfjsLib.getDocument({ data: bytes.slice(0), isEvalSupported: false, verbosity: 0 }).promise;
-    const out = new Array(order.length).fill(null), TH = 220;   // px tall
+    const out = new Array(order.length).fill(null), TH = 160;   // px tall
     for (let pi = 0; pi < doc.numPages; pi++) {
       const mine = order.map((o, n) => ({ ...o, n })).filter(o => o.pi === pi);
       if (!mine.length) continue;
@@ -733,7 +735,13 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
       await pg.render({ canvasContext: g, viewport: vp }).promise;
       for (const o of mine) {
-        const it = o.it, x = it.x * sc, y = (plan.H - it.y - it.H) * sc, w = it.W * sc, h = it.H * sc;
+        const it = o.it, bb = it.b.bbox;
+        let rx = it.x, ry = it.y, rw = it.W, rh = it.H;
+        if (!it.rot && it.b.design && it.b.design.frames) {                 // artwork area only
+          const fr = it.b.design.frames.reduce((a, f) => [Math.min(a[0], f[0]), Math.min(a[1], f[1]), Math.max(a[2], f[2]), Math.max(a[3], f[3])]);
+          rx = it.x + (fr[0] - bb[0]); ry = it.y + (fr[1] - bb[1]); rw = fr[2] - fr[0]; rh = fr[3] - fr[1];
+        }
+        const x = rx * sc, y = (plan.H - ry - rh) * sc, w = rw * sc, h = rh * sc;
         const c2 = document.createElement('canvas'); c2.width = Math.max(1, Math.round(w)); c2.height = Math.max(1, Math.round(h));
         c2.getContext('2d').drawImage(cv, x, y, w, h, 0, 0, c2.width, c2.height);
         out[o.n] = await new Promise(r => c2.toBlob(b => r(b && b.type === 'image/webp' ? b : null), 'image/webp', 0.8))
@@ -782,49 +790,46 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const day = fmtDate(it.created).slice(0, 10);
       if (day !== lastDay) { const h = document.createElement('div'); h.className = 'hday'; h.textContent = day; box.appendChild(h); lastDay = day; }
       const card = document.createElement('div'); card.className = 'hitem';
-      const left = document.createElement('div');
-      const nm = document.createElement('div'); nm.className = 'hname'; nm.textContent = it.name;
       const info = it.info || {}, items = info.items || [];
-      const meta = document.createElement('div'); meta.className = 'hmeta';
-      meta.textContent = [fmtDate(it.created).slice(11), info.sheets != null ? `${info.sheets} แผ่น` : '', `${items.length || info.blocks || 0} บล็อก`, info.sheetW ? `${info.sheetW}×${info.sheetH}″` : '', fmtSize(it.size)].filter(Boolean).join(' · ');
-      const custs = [...new Set(items.map(x => x.customer || 'ไม่ระบุลูกค้า'))];
-      const cu = document.createElement('div'); cu.className = 'hcust'; cu.textContent = custs.join(', ');
-      left.append(nm, meta, cu);
-      if (items.some(x => x.thumb)) {
-        const strip = document.createElement('div'); strip.className = 'thumbs';
-        items.forEach((x, n) => { if (!x.thumb) return;
-          const a = document.createElement('a'); a.href = 'api/films/' + it.id; a.target = '_blank'; a.rel = 'noopener';
-          a.title = `${x.file} · ${x.customer || 'ไม่ระบุลูกค้า'}`;
-          const im = document.createElement('img'); im.loading = 'lazy'; im.alt = x.file; im.src = `api/films/${it.id}/t${n}`;
-          const cap = document.createElement('span'); cap.textContent = x.customer || x.file;
-          a.append(im, cap); strip.appendChild(a); });
-        left.appendChild(strip);
-      }
+      // header: time + counts, actions on the right
+      const head = document.createElement('div'); head.className = 'hhead';
+      const ht = document.createElement('div'); ht.className = 'htitle';
+      const tm = document.createElement('b'); tm.textContent = fmtDate(it.created).slice(11);
+      const sub = document.createElement('span');
+      sub.textContent = [`${items.length || info.blocks || 0} ลาย`, info.sheets != null ? `${info.sheets} แผ่น` : '', fmtSize(it.size)].filter(Boolean).join(' · ');
+      ht.title = it.name; ht.append(tm, sub);
       const act = document.createElement('div'); act.className = 'hact';
-      const view = document.createElement('a'); view.href = 'api/films/' + it.id; view.target = '_blank'; view.rel = 'noopener'; view.textContent = 'เปิดดู';
+      const view = document.createElement('a'); view.href = 'api/films/' + it.id; view.target = '_blank'; view.rel = 'noopener'; view.textContent = 'เปิด';
       const dl = document.createElement('a'); dl.href = 'api/films/' + it.id + '?dl=1'; dl.textContent = 'ดาวน์โหลด';
       const del = document.createElement('button'); del.type = 'button'; del.className = 'del'; del.textContent = 'ลบ';
       let armT = 0;
       del.addEventListener('click', async () => {
-        if (!del.classList.contains('armed')) { del.classList.add('armed'); del.textContent = 'กดอีกครั้งเพื่อลบ'; armT = setTimeout(() => { del.classList.remove('armed'); del.textContent = 'ลบ'; }, 4000); return; }
+        if (!del.classList.contains('armed')) { del.classList.add('armed'); del.textContent = 'ยืนยันลบ'; armT = setTimeout(() => { del.classList.remove('armed'); del.textContent = 'ลบ'; }, 4000); return; }
         clearTimeout(armT); del.disabled = true; del.textContent = 'กำลังลบ…';
         try { const r = await fetch('api/films/' + it.id, { method: 'DELETE' }); if (!r.ok) throw new Error(r.status);
           hist.items = hist.items.filter(x => x.id !== it.id); renderHistory(); }
         catch (e) { del.disabled = false; del.textContent = 'ลบไม่สำเร็จ'; }
       });
       act.append(view, dl, del);
-      card.append(left, act);
-      if (items.length) {
-        const det = document.createElement('details'); det.className = 'hdetail';
-        const sm = document.createElement('summary'); sm.textContent = 'รายการลายในฟิล์มนี้'; det.appendChild(sm);
-        const t = document.createElement('table');
-        items.forEach((x, n) => { const tr = document.createElement('tr');
-          const tdi = document.createElement('td'); if (x.thumb) { const im = document.createElement('img'); im.loading = 'lazy'; im.alt = ''; im.src = `api/films/${it.id}/t${n}`; tdi.appendChild(im); } tr.appendChild(tdi);
-          const comp = !x.compUm ? 'ไม่ชดเชย' : `+${x.compUm} µm` + (x.mode === 'manual' ? ' (ระบุเอง)' : '');
-          [x.file, x.customer || 'ไม่ระบุลูกค้า', x.thick != null ? `บล็อก ${x.thick} µm` : '', comp].forEach((v, k) => { const td = document.createElement('td'); if (k >= 2) td.className = 'num'; td.textContent = v; tr.appendChild(td); });
-          t.appendChild(tr); });
-        det.appendChild(t); card.appendChild(det);
-      }
+      head.append(ht, act);
+      card.appendChild(head);
+      // one simple row per design: picture | customer + file | thickness · compensation
+      const rows = document.createElement('div'); rows.className = 'hrows';
+      items.forEach((x, n) => {
+        const row = document.createElement('a'); row.className = 'hrow'; row.href = 'api/films/' + it.id; row.target = '_blank'; row.rel = 'noopener';
+        const pic = document.createElement('div'); pic.className = 'hpic';
+        if (x.thumb) { const im = document.createElement('img'); im.loading = 'lazy'; im.alt = ''; im.src = `api/films/${it.id}/t${n}`; pic.appendChild(im); }
+        const txt = document.createElement('div'); txt.className = 'htxt';
+        const c = document.createElement('div'); c.className = 'hc'; c.textContent = x.customer || 'ไม่ระบุลูกค้า';
+        const f = document.createElement('div'); f.className = 'hf'; f.textContent = x.file;
+        txt.append(c, f);
+        const spec = document.createElement('div'); spec.className = 'hs';
+        const th = document.createElement('span'); th.textContent = x.thick ? `${x.thick} µm` : '—';
+        const cp = document.createElement('span'); cp.textContent = x.compUm ? `+${x.compUm}` : 'ไม่ชดเชย';
+        spec.append(th, cp);
+        row.append(pic, txt, spec); rows.appendChild(row);
+      });
+      card.appendChild(rows);
       box.appendChild(card);
     }
     $('histMore').hidden = !hist.more;
