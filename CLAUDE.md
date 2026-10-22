@@ -6,9 +6,9 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
 ## Stack
 - Cloudflare Worker `src/index.js`. Static assets in `public/`. API:
   - `/api/settings` GET → `{film, customers, features}`, PUT `{film, baseUpdated}` → 409 on stale base.
-  - `/api/films` POST multipart (`name`, `info` JSON, `file` PDF) → archive; GET `?limit&before` → newest first. `/api/films/:id` GET (inline, `?dl=1` attachment), DELETE.
+  - `/api/films` POST multipart (`name`, `info` JSON, `file` PDF, optional `thumb_<n>` image per info.items[n]) → archive; GET `?limit&before&q&from&to` → newest first (q = words, all must match name/info). `/api/films/:id` GET (inline, `?dl=1` attachment), DELETE (also removes `film/<id>/` thumbs). `/api/films/:id/t<n>` = design thumbnail.
 - D1 binding `DB` = **stencil-db, shared with the stencil-log app**. Read `settings.key='master'` (customers, `customerSpecs[name].target` µm) — never write it. Write only `settings.key='film'` and the app's own table `film_outputs` (id, name, created, size, info JSON). Never alter stencil-log tables.
-- R2 binding `FILES` = **stencil-files, shared with stencil-log**. This app only uses keys under `film/` (`film/<id>.pdf`).
+- R2 binding `FILES` = **stencil-files, shared with stencil-log**. This app only uses keys under `film/` (`film/<id>.pdf`, thumbnails `film/<id>/t<n>`).
 - No build step. `public/js/film-core.js` = analysis/rendering core (also runs in Node with `require('pdf-lib')` for tests). `public/index.html` = UI.
 - Vendored libs in `public/vendor/` (pdf-lib 1.17.1, JSZip 3.10.1, PDF.js 3.11.174 with a real worker).
 

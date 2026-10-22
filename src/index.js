@@ -11,6 +11,7 @@ const json = (d, status = 200) =>
   new Response(JSON.stringify(d), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
 const MAX_PDF = 60 * 1024 * 1024;   // 60 MB ต่อไฟล์
+const MAX_THUMB = 300 * 1024;       // รูปตัวอย่างต่อลาย
 
 // ค่าที่แอปฟิล์มรับ (ค่าอื่นในคำขอถูกทิ้ง)
 const NUM_KEYS = ['sheetW', 'sheetH', 'margin', 'gap', 'markArm', 'markGrey', 'markWidthMm', 'labelGrey', 'defaultThick', 'factor'];
@@ -62,7 +63,7 @@ function cleanInfo(raw) {
   const str = (v, n = 200) => String(v == null ? '' : v).slice(0, n);
   const num = (v) => { const x = Number(v); return Number.isFinite(x) ? x : null; };
   const items = Array.isArray(o.items) ? o.items.slice(0, 200).map(it => ({
-    file: str(it.file), customer: str(it.customer, 100), thick: num(it.thick), compUm: num(it.compUm), mode: str(it.mode, 10)
+    file: str(it.file), customer: str(it.customer, 100), thick: num(it.thick), compUm: num(it.compUm), mode: str(it.mode, 10), thumb: false
   })) : [];
   return { sheets: num(o.sheets), blocks: num(o.blocks), sheetW: num(o.sheetW), sheetH: num(o.sheetH), date: str(o.date, 20), items };
 }
@@ -131,6 +132,15 @@ async function api(req, env, url) {
       const info = cleanInfo(form.get('info'));
       const id = uid(), created = Date.now();
       await env.FILES.put(`film/${id}.pdf`, buf, { httpMetadata: { contentType: 'application/pdf' }, customMetadata: { name } });
+      // small preview image per design: fields thumb_0, thumb_1, ... (index = position in info.items)
+      const puts = [];
+      for (let n = 0; n < info.items.length; n++) {
+        const t = form.get('thumb_' + n);
+        if (!t || typeof t === 'string' || !/^image\/(webp|jpeg|png)$/.test(t.type) || t.size > MAX_THUMB) continue;
+        info.items[n].thumb = true;
+        puts.push(env.FILES.put(`film/${id}/t${n}`, await t.arrayBuffer(), { httpMetadata: { contentType: t.type } }));
+      }
+      await Promise.all(puts);
       await env.DB.prepare('INSERT INTO film_outputs (id, name, created, size, info) VALUES (?, ?, ?, ?, ?)')
         .bind(id, name, created, buf.byteLength, JSON.stringify(info)).run();
       return json({ id, name, created, size: buf.byteLength, info }, 201);
@@ -139,10 +149,23 @@ async function api(req, env, url) {
     if (p === '/films' && m === 'GET') {
       const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 200);
       const before = Number(url.searchParams.get('before')) || 9e15;
-      const r = await env.DB.prepare('SELECT id, name, created, size, info FROM film_outputs WHERE created < ? ORDER BY created DESC LIMIT ?')
-        .bind(before, limit + 1).all();
+      const from = Number(url.searchParams.get('from')) || 0;
+      const to = Number(url.searchParams.get('to')) || 9e15;
+      const words = String(url.searchParams.get('q') || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6);
+      let sql = 'SELECT id, name, created, size, info FROM film_outputs WHERE created < ? AND created >= ? AND created < ?';
+      const args = [before, from, to];
+      for (const w of words) { sql += " AND lower(name || ' ' || info) LIKE ? ESCAPE '\\'"; args.push('%' + w.replace(/[\\%_]/g, c => '\\' + c) + '%'); }
+      sql += ' ORDER BY created DESC LIMIT ?'; args.push(limit + 1);
+      const r = await env.DB.prepare(sql).bind(...args).all();
       const rows = r.results.slice(0, limit).map(x => ({ id: x.id, name: x.name, created: x.created, size: x.size, info: JSON.parse(x.info || '{}') }));
       return json({ items: rows, more: r.results.length > limit });
+    }
+
+    const tm = p.match(/^\/films\/([a-f0-9]{16})\/t(\d{1,3})$/);
+    if (tm && m === 'GET') {
+      const obj = await env.FILES.get(`film/${tm[1]}/t${tm[2]}`);
+      if (!obj) return new Response('not found', { status: 404 });
+      return new Response(obj.body, { headers: { 'content-type': (obj.httpMetadata && obj.httpMetadata.contentType) || 'image/webp', 'cache-control': 'public, max-age=31536000, immutable' } });
     }
 
     const mm = p.match(/^\/films\/([a-f0-9]{16})$/);
@@ -160,6 +183,8 @@ async function api(req, env, url) {
       }
       if (m === 'DELETE') {
         await env.FILES.delete(`film/${id}.pdf`);
+        const listed = await env.FILES.list({ prefix: `film/${id}/` });
+        if (listed.objects.length) await env.FILES.delete(listed.objects.map(o => o.key));
         await env.DB.prepare('DELETE FROM film_outputs WHERE id = ?').bind(id).run();
         return json({ ok: true });
       }

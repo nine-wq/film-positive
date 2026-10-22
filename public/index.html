@@ -116,8 +116,17 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 .saveside { display: flex; align-items: center; gap: 12px; flex-wrap: wrap }
 .keep { display: inline-flex; align-items: center; gap: 6px; font-size: .84rem; color: var(--muted); cursor: pointer }
 .hist { display: grid; gap: 12px; max-width: 900px }
-.histbar { display: flex; gap: 8px; flex-wrap: wrap }
-.histbar input { flex: 1 1 240px; min-width: 0; font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px }
+.histbar { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: flex-end; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px }
+.histbar label { display: grid; gap: 3px; font-size: .72rem; color: var(--muted); min-width: 0 }
+.histbar .hq { flex: 1 1 260px }
+.histbar .hd { flex: 0 1 150px }
+.histbar input { width: 100%; min-width: 0; font: inherit; font-size: .88rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px }
+.histsum { font-size: .8rem; color: var(--muted); min-height: 1em }
+.thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px }
+.thumbs a { display: grid; justify-items: center; gap: 2px; text-decoration: none; color: var(--muted); font-size: .66rem; max-width: 92px }
+.thumbs img { height: 72px; width: auto; max-width: 92px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 3px }
+.thumbs span { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.hdetail img { height: 40px; width: auto; background: #fff; border: 1px solid var(--line); border-radius: 4px; display: block }
 .histlist { display: grid; gap: 8px }
 .hday { font-size: .75rem; font-weight: 600; letter-spacing: .06em; color: var(--muted); margin: 8px 0 0 }
 .hitem { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: start }
@@ -197,9 +206,12 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
 
   <div class="hist" id="viewHist" role="tabpanel" aria-labelledby="tabHist" hidden>
     <div class="histbar">
-      <input type="search" id="histQ" placeholder="ค้นหาชื่อไฟล์ หรือลูกค้า" aria-label="ค้นหาประวัติ">
-      <button type="button" class="ghost" id="histReload">โหลดใหม่</button>
+      <label class="hq"><span>ค้นหา</span><input type="search" id="histQ" placeholder="ชื่อไฟล์ ลูกค้า ความหนา เช่น PALLY 400"></label>
+      <label class="hd"><span>ตั้งแต่วันที่</span><input type="date" id="histFrom"></label>
+      <label class="hd"><span>ถึงวันที่</span><input type="date" id="histTo"></label>
+      <button type="button" class="ghost" id="histClear">ล้างตัวกรอง</button>
     </div>
+    <div class="histsum" id="histSum"></div>
     <div class="status" id="histStatus" role="status"></div>
     <div class="histlist" id="histList"></div>
     <button type="button" class="ghost" id="histMore" hidden>โหลดรายการเก่ากว่านี้</button>
@@ -689,8 +701,8 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   function syncKeep() { $('keepWrap').hidden = !historyOn(); }
   async function archive(filename, bytes, plan, blocks) {
     if (!historyOn() || !$('keepCopy').checked || !bytes) return;
-    const placed = new Set(); (plan ? plan.sheets.flat() : []).forEach(it => placed.add(it.b));
-    const items = blocks.filter(b => placed.has(b)).map(b => {
+    const order = plan ? plan.sheets.flatMap((sh, pi) => sh.map(it => ({ it, pi }))) : [];
+    const items = order.map(({ it }) => it.b).map(b => {
       const ds = (b.job.dset && b.job.dset[b.design.index]) || {};
       return { file: b.job.name, customer: ds.customer || '', thick: ds.thick != null ? ds.thick : null, compUm: b.offsetUm, mode: ds.mode || 'auto' };
     });
@@ -698,12 +710,38 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
     const fd = new FormData();
     fd.append('name', filename); fd.append('info', JSON.stringify(info));
     fd.append('file', new Blob([bytes], { type: 'application/pdf' }), filename);
+    try { (await makeThumbs(bytes, plan, order)).forEach((t, n) => { if (t) fd.append('thumb_' + n, t, `t${n}`); }); } catch (e) {}
     try {
       const r = await fetch('api/films', { method: 'POST', body: fd });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
       hist.items = null;   // refresh next time the tab opens
       const s = $('status'); if (!s.classList.contains('bad')) setStatus((s.textContent ? s.textContent + ' · ' : '') + 'เก็บสำเนาในประวัติแล้ว');
     } catch (e) { setStatus('ดาวน์โหลดแล้ว แต่เก็บสำเนาในประวัติไม่สำเร็จ (' + e.message + ')', true); }
+  }
+  // one small picture per design, cut out of the finished film so it shows exactly what was saved
+  async function makeThumbs(bytes, plan, order) {
+    if (!window.pdfjsLib || !plan) return [];
+    const doc = await pdfjsLib.getDocument({ data: bytes.slice(0), isEvalSupported: false, verbosity: 0 }).promise;
+    const out = new Array(order.length).fill(null), TH = 220;   // px tall
+    for (let pi = 0; pi < doc.numPages; pi++) {
+      const mine = order.map((o, n) => ({ ...o, n })).filter(o => o.pi === pi);
+      if (!mine.length) continue;
+      const maxH = Math.max(...mine.map(o => o.it.H));
+      const sc = Math.min(1.5, TH / maxH);
+      const pg = await doc.getPage(pi + 1); const vp = pg.getViewport({ scale: sc });
+      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+      await pg.render({ canvasContext: g, viewport: vp }).promise;
+      for (const o of mine) {
+        const it = o.it, x = it.x * sc, y = (plan.H - it.y - it.H) * sc, w = it.W * sc, h = it.H * sc;
+        const c2 = document.createElement('canvas'); c2.width = Math.max(1, Math.round(w)); c2.height = Math.max(1, Math.round(h));
+        c2.getContext('2d').drawImage(cv, x, y, w, h, 0, 0, c2.width, c2.height);
+        out[o.n] = await new Promise(r => c2.toBlob(b => r(b && b.type === 'image/webp' ? b : null), 'image/webp', 0.8))
+          || await new Promise(r => c2.toBlob(r, 'image/jpeg', 0.8));
+      }
+    }
+    doc.destroy();
+    return out;
   }
   const hist = { items: null, more: false, loading: false };
   const fmtDate = (t) => { const d = new Date(t), p = (n) => String(n).padStart(2, '0'); return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
@@ -714,22 +752,31 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       $('histStatus').textContent = remote.ok ? 'ยังไม่ได้เชื่อมที่เก็บไฟล์ (R2) บนเซิร์ฟเวอร์' : 'ประวัติดูได้เฉพาะตอนเปิดแอปจากเว็บของบริษัท (Cloudflare)'; $('histStatus').className = 'status bad'; return; }
     if (hist.loading) return;
     if (!fresh && hist.items) return renderHistory();
-    if (fresh && hist.items && hist.items.length && !hist.stale) { renderHistory(); }
     hist.loading = true; $('histStatus').textContent = 'กำลังโหลด…'; $('histStatus').className = 'status';
     try {
       const before = !fresh && hist.items && hist.items.length ? hist.items[hist.items.length - 1].created : '';
-      const r = await fetch('api/films?limit=50' + (before ? '&before=' + before : ''), { cache: 'no-store' });
+      const r = await fetch('api/films?' + histQuery(before), { cache: 'no-store' });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || r.status);
       hist.items = fresh ? d.items : (hist.items || []).concat(d.items); hist.more = d.more;
       $('histStatus').textContent = '';
     } catch (e) { $('histStatus').textContent = 'โหลดประวัติไม่สำเร็จ (' + e.message + ')'; $('histStatus').className = 'status bad'; }
     hist.loading = false; renderHistory();
   }
+  function histQuery(before) {
+    const q = $('histQ').value.trim(), f = $('histFrom').value, t = $('histTo').value;
+    const ps = new URLSearchParams({ limit: '50' });
+    if (before) ps.set('before', before);
+    if (q) ps.set('q', q);
+    if (f) ps.set('from', String(new Date(f + 'T00:00:00').getTime()));
+    if (t) ps.set('to', String(new Date(t + 'T00:00:00').getTime() + 864e5));
+    return ps.toString();
+  }
   function renderHistory() {
     const box = $('histList'); box.textContent = '';
-    const q = $('histQ').value.trim().toLowerCase();
-    const list = (hist.items || []).filter(it => !q || [it.name, ...(it.info.items || []).flatMap(x => [x.file, x.customer])].join(' ').toLowerCase().includes(q));
-    if (!list.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = hist.items && hist.items.length ? 'ไม่พบรายการที่ตรงกับคำค้น' : 'ยังไม่มีฟิล์มที่บันทึกไว้ เมื่อกดบันทึก PDF ฟิล์ม สำเนาจะมาอยู่ที่นี่'; box.appendChild(e); }
+    const filtered = !!($('histQ').value.trim() || $('histFrom').value || $('histTo').value);
+    const list = hist.items || [];
+    $('histSum').textContent = hist.items ? (filtered ? `พบ ${list.length}${hist.more ? '+' : ''} รายการที่ตรงกับตัวกรอง` : `${list.length}${hist.more ? '+' : ''} รายการล่าสุด`) : '';
+    if (!list.length && hist.items) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = filtered ? 'ไม่พบรายการที่ตรงกับตัวกรอง' : 'ยังไม่มีฟิล์มที่บันทึกไว้ เมื่อกดบันทึก PDF ฟิล์ม สำเนาจะมาอยู่ที่นี่'; box.appendChild(e); }
     let lastDay = '';
     for (const it of list) {
       const day = fmtDate(it.created).slice(0, 10);
@@ -743,6 +790,16 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const custs = [...new Set(items.map(x => x.customer || 'ไม่ระบุลูกค้า'))];
       const cu = document.createElement('div'); cu.className = 'hcust'; cu.textContent = custs.join(', ');
       left.append(nm, meta, cu);
+      if (items.some(x => x.thumb)) {
+        const strip = document.createElement('div'); strip.className = 'thumbs';
+        items.forEach((x, n) => { if (!x.thumb) return;
+          const a = document.createElement('a'); a.href = 'api/films/' + it.id; a.target = '_blank'; a.rel = 'noopener';
+          a.title = `${x.file} · ${x.customer || 'ไม่ระบุลูกค้า'}`;
+          const im = document.createElement('img'); im.loading = 'lazy'; im.alt = x.file; im.src = `api/films/${it.id}/t${n}`;
+          const cap = document.createElement('span'); cap.textContent = x.customer || x.file;
+          a.append(im, cap); strip.appendChild(a); });
+        left.appendChild(strip);
+      }
       const act = document.createElement('div'); act.className = 'hact';
       const view = document.createElement('a'); view.href = 'api/films/' + it.id; view.target = '_blank'; view.rel = 'noopener'; view.textContent = 'เปิดดู';
       const dl = document.createElement('a'); dl.href = 'api/films/' + it.id + '?dl=1'; dl.textContent = 'ดาวน์โหลด';
@@ -761,7 +818,8 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
         const det = document.createElement('details'); det.className = 'hdetail';
         const sm = document.createElement('summary'); sm.textContent = 'รายการลายในฟิล์มนี้'; det.appendChild(sm);
         const t = document.createElement('table');
-        items.forEach(x => { const tr = document.createElement('tr');
+        items.forEach((x, n) => { const tr = document.createElement('tr');
+          const tdi = document.createElement('td'); if (x.thumb) { const im = document.createElement('img'); im.loading = 'lazy'; im.alt = ''; im.src = `api/films/${it.id}/t${n}`; tdi.appendChild(im); } tr.appendChild(tdi);
           const comp = !x.compUm ? 'ไม่ชดเชย' : `+${x.compUm} µm` + (x.mode === 'manual' ? ' (ระบุเอง)' : '');
           [x.file, x.customer || 'ไม่ระบุลูกค้า', x.thick != null ? `บล็อก ${x.thick} µm` : '', comp].forEach((v, k) => { const td = document.createElement('td'); if (k >= 2) td.className = 'num'; td.textContent = v; tr.appendChild(td); });
           t.appendChild(tr); });
@@ -769,10 +827,13 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       }
       box.appendChild(card);
     }
-    $('histMore').hidden = !hist.more || !!q;
+    $('histMore').hidden = !hist.more;
   }
-  $('histQ').addEventListener('input', renderHistory);
-  $('histReload').addEventListener('click', () => loadHistory(true));
+  let hqT = 0;
+  const refilter = () => { clearTimeout(hqT); hqT = setTimeout(() => loadHistory(true), 300); };
+  $('histQ').addEventListener('input', refilter);
+  $('histFrom').addEventListener('change', refilter); $('histTo').addEventListener('change', refilter);
+  $('histClear').addEventListener('click', () => { $('histQ').value = ''; $('histFrom').value = ''; $('histTo').value = ''; loadHistory(true); });
   $('histMore').addEventListener('click', () => loadHistory(false));
 
   /* ---------- save ---------- */
