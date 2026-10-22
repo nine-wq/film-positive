@@ -25,6 +25,7 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
 
 ## Rules
 - Saving a PDF first stores the history copy and originals on the server (button disabled, beforeunload warning while busy), and only then starts the download. By default it archives ("เก็บสำเนาในประวัติ"), then ("เก็บไฟล์ต้นฉบับ", on by default, needs the history copy) stores each distinct original file; the ประวัติ tab lists, opens, downloads and deletes archived films.
+- Preview = two panes in place (no pop-up): original file (chosen from a list) | film (all sheets side by side). Each zooms/pans (wheel, drag, pinch); while moving the last bitmap is stretched, then only the visible area is re-rendered with PDF.js. "ซูมและเลื่อนพร้อมกัน" links them through each block's placement (`toFilm`/`toOrig`), and moving the film switches the original to the matching file.
 - UI text in Thai; must work at 400 px width and in dark mode.
 - D1 rejects LIKE/GLOB patterns longer than 50 bytes (local wrangler dev does not): use `instr()` for substring matches, never LIKE with long values (e.g. sha256).
 - Before pushing: `node --check public/js/film-core.js` and `node --check --input-type=module < src/index.js`.
