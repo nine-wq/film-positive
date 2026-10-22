@@ -21,7 +21,7 @@ Turns customer sock-print artwork (.ai PDF-compatible / .pdf / .zip, multi-page)
 - Marks: 3 faint crosses on the centre line between frames; 2-line faint label 10 mm below the lowest cross (customer - file / thickness · compensation · date).
 
 ## Rules
-- Saving a PDF downloads it and, by default ("เก็บสำเนาในประวัติ"), archives it, then ("เก็บไฟล์ต้นฉบับ", on by default, needs the history copy) stores each distinct original file; the ประวัติ tab lists, opens, downloads and deletes archived films.
+- Saving a PDF first stores the history copy and originals on the server (button disabled, beforeunload warning while busy), and only then starts the download. By default it archives ("เก็บสำเนาในประวัติ"), then ("เก็บไฟล์ต้นฉบับ", on by default, needs the history copy) stores each distinct original file; the ประวัติ tab lists, opens, downloads and deletes archived films.
 - UI text in Thai; must work at 400 px width and in dark mode.
 - Before pushing: `node --check public/js/film-core.js` and `node --check --input-type=module < src/index.js`.
 - Deploy = push to `main` (Workers Builds runs `npx wrangler deploy`). No secrets in the repo.

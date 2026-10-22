@@ -711,7 +711,9 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   }
   $('keepCopy').addEventListener('change', syncKeep);
   async function archive(filename, bytes, plan, blocks) {
-    if (!historyOn() || !$('keepCopy').checked || !bytes) return;
+    // returns { text, bad } describing what was stored; never throws
+    if (!historyOn() || !$('keepCopy').checked || !bytes) return null;
+    setStatus('กำลังเก็บสำเนาในประวัติ… อย่าเพิ่งปิดหน้านี้');
     const order = plan ? plan.sheets.flatMap((sh, pi) => sh.map(it => ({ it, pi }))) : [];
     const items = order.map(({ it }) => it.b).map(b => {
       const ds = (b.job.dset && b.job.dset[b.design.index]) || {};
@@ -728,21 +730,23 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
       const saved = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(saved.error || r.status);
       hist.items = null;   // refresh next time the tab opens
-      const base = $('status').classList.contains('bad') ? '' : $('status').textContent;
-      setStatus((base ? base + ' · ' : '') + 'เก็บสำเนาในประวัติแล้ว');
-      if (remote.originals && $('keepOrig').checked) await backupOriginals(saved.id, order, items, base);
-    } catch (e) { setStatus('ดาวน์โหลดแล้ว แต่เก็บสำเนาในประวัติไม่สำเร็จ (' + e.message + ')', true); }
+      if (remote.originals && $('keepOrig').checked) {
+        const o = await backupOriginals(saved.id, order);
+        return { text: 'เก็บสำเนาในประวัติแล้ว · ' + o.text, bad: o.bad };
+      }
+      return { text: 'เก็บสำเนาในประวัติแล้ว', bad: false };
+    } catch (e) { return { text: 'เก็บสำเนาในประวัติไม่สำเร็จ (' + e.message + ')', bad: true }; }
   }
   // customer original files -> server (R2), stored once per distinct file content
   async function sha256hex(u8) { const h = new Uint8Array(await crypto.subtle.digest('SHA-256', u8)); return [...h].map(x => x.toString(16).padStart(2, '0')).join(''); }
-  async function backupOriginals(filmId, order, items, base) {
+  async function backupOriginals(filmId, order) {
     const srcs = new Map();
     order.forEach(({ it }) => { const rec = jobs.find(r => r.job === it.b.job); if (rec && rec.srcBytes && !rec.sample && !srcs.has(rec.src)) srcs.set(rec.src, rec); });
     const list = [...srcs.values()]; let ok = 0; const fails = [];
-    const head = `${base ? base + ' · ' : ''}เก็บสำเนาในประวัติแล้ว`;
+    const head = 'เก็บสำเนาในประวัติแล้ว';
     for (let i = 0; i < list.length; i++) {
       const rec = list[i];
-      setStatus(`${head} · กำลังเก็บไฟล์ต้นฉบับ ${i + 1}/${list.length}…`);
+      setStatus(`${head} · กำลังเก็บไฟล์ต้นฉบับ ${i + 1}/${list.length}… อย่าเพิ่งปิดหน้านี้`);
       try {
         const sha = await sha256hex(rec.srcBytes);
         const r = await fetch('api/originals?' + new URLSearchParams({ film: filmId, name: rec.src, sha }), { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: new Blob([rec.srcBytes]) });
@@ -751,8 +755,8 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
         ok++;
       } catch (e) { fails.push(rec.src + ': ' + e.message); }
     }
-    const msg = `${head} · เก็บไฟล์ต้นฉบับ ${ok}/${list.length} ไฟล์`;
-    setStatus(fails.length ? msg + ' · ไม่สำเร็จ: ' + fails.join(', ') : msg, !!fails.length);
+    const msg = `เก็บไฟล์ต้นฉบับ ${ok}/${list.length} ไฟล์`;
+    return { text: fails.length ? msg + ' · ไม่สำเร็จ: ' + fails.join(', ') : msg, bad: !!fails.length };
   }
   // one small picture per design, cut out of the finished film so it shows exactly what was saved
   async function makeThumbs(bytes, plan, order) {
@@ -883,28 +887,38 @@ details.settings summary { cursor: pointer; font-weight: 600; font-size: .9rem }
   $('histMore').addEventListener('click', () => loadHistory(false));
 
   /* ---------- save ---------- */
+  // while copies are being stored, warn before the page is closed
+  let busy = false;
+  window.addEventListener('beforeunload', e => { if (busy) { e.preventDefault(); e.returnValue = ''; } });
   $('save').addEventListener('click', async () => {
-    if (!lastPdf) return;
+    if (!lastPdf || busy) return;
+    const pdf = lastPdf, plan = lastPlan, blocks = lastBlocks;   // the film as shown now
     const real = jobs.filter(r => r.job && !r.sample);
     const d = new Date(); const p2 = (n) => String(n).padStart(2, '0'); const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
     const base = real.length === 1 ? real[0].name.replace(/\.(ai|pdf)$/i, '') + '_film' : `film_${st.sheetW}x${st.sheetH}_${real.length || 1}jobs`;
     const filename = `${base}_${stamp}.pdf`;
-    archive(filename, lastPdf, lastPlan, lastBlocks);
+    // 1) store the copy and the originals on the server first, 2) then hand the file to the browser
+    busy = true; const btn = $('save'), label = btn.textContent; btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+    let stored = null;
+    try { stored = await archive(filename, pdf, plan, blocks); }
+    finally { busy = false; btn.disabled = false; btn.textContent = label; }
+    const tail = stored ? ' · ' + stored.text : '';
+    const bad = !!(stored && stored.bad);
     const inViewer = !!(window.claude && window.claude.use);
     const downloads = inViewer ? await window.claude.use('downloads') : null;
     if (!downloads) {
       // opened as a plain file in a browser: an ordinary download works
-      const url = URL.createObjectURL(new Blob([lastPdf], { type: 'application/pdf' }));
+      const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
       const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
       if (inViewer) setStatus('บันทึกไฟล์จากลิงก์นี้ไม่ได้สำหรับบัญชีนี้ ให้ล็อกอิน claude.ai ด้วยบัญชีที่ได้รับแชร์ แล้วเปิดลิงก์อีกครั้ง หรือใช้ไฟล์แอป .html ที่เปิดในเบราว์เซอร์ได้โดยตรง', true);
-      else setStatus('บันทึก ' + filename + ' แล้ว (ดูในโฟลเดอร์ดาวน์โหลด)');
+      else setStatus('บันทึก ' + filename + ' แล้ว (ดูในโฟลเดอร์ดาวน์โหลด)' + tail, bad);
       return;
     }
-    try { await downloads.save({ filename, data: new Blob([lastPdf], { type: 'application/pdf' }) }); setStatus('บันทึก ' + filename + ' แล้ว'); }
+    try { await downloads.save({ filename, data: new Blob([pdf], { type: 'application/pdf' }) }); setStatus('บันทึก ' + filename + ' แล้ว' + tail, bad); }
     catch (e) {
       const c = e && e.code;
-      if (c === 'declined') setStatus('ยกเลิกการบันทึก');
+      if (c === 'declined') setStatus('ยกเลิกการดาวน์โหลด' + tail, bad);
       else if (c === 'rate_limited') setStatus('มีหน้าต่างบันทึกเปิดค้างอยู่ รอสักครู่แล้วลองใหม่', true);
       else setStatus('บันทึกไม่สำเร็จในมุมมองนี้ (' + (c || 'unavailable') + ')', true);
     }
